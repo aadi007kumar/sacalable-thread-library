@@ -1,0 +1,368 @@
+"""
+Scalable Thread Management Library
+===================================
+A high-performance thread management library supporting efficient creation,
+synchronization, and termination of thousands of concurrent threads.
+"""
+
+import threading
+import time
+import uuid
+import logging
+import queue
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Dict, List, Any
+from contextlib import contextmanager
+
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+
+class ThreadState(Enum):
+    PENDING   = "PENDING"
+    RUNNING   = "RUNNING"
+    PAUSED    = "PAUSED"
+    COMPLETED = "COMPLETED"
+    FAILED    = "FAILED"
+    TERMINATED = "TERMINATED"
+
+
+@dataclass
+class ThreadMetrics:
+    thread_id: str
+    name: str
+    state: str
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    cpu_time: float = 0.0
+    error: Optional[str] = None
+    result: Any = None
+    priority: int = 5
+
+    @property
+    def duration(self) -> Optional[float]:
+        if self.start_time and self.end_time:
+            return round(self.end_time - self.start_time, 4)
+        elif self.start_time:
+            return round(time.time() - self.start_time, 4)
+        return None
+
+
+class ManagedThread:
+    """A wrapper around threading.Thread with lifecycle management."""
+
+    def __init__(self, thread_id: str, name: str, target: Callable,
+                 args=(), kwargs=None, priority: int = 5, daemon: bool = True):
+        self.thread_id = thread_id
+        self.name = name
+        self.priority = priority
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+        self._state = ThreadState.PENDING
+        self._lock = threading.Lock()
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # Not paused by default
+        self._stop_event = threading.Event()
+        self.result = None
+        self.error = None
+        self.start_time = None
+        self.end_time = None
+
+        self._thread = threading.Thread(
+            target=self._run_wrapper,
+            name=name,
+            daemon=daemon
+        )
+
+    def _run_wrapper(self):
+        self.start_time = time.time()
+        with self._lock:
+            self._state = ThreadState.RUNNING
+        try:
+            self.result = self._target(*self._args, **self._kwargs,
+                                       pause_event=self._pause_event,
+                                       stop_event=self._stop_event)
+            with self._lock:
+                if self._state != ThreadState.TERMINATED:
+                    self._state = ThreadState.COMPLETED
+        except Exception as e:
+            self.error = str(e)
+            with self._lock:
+                self._state = ThreadState.FAILED
+            logger.error(f"Thread '{self.name}' failed: {e}")
+        finally:
+            self.end_time = time.time()
+
+    def start(self):
+        self._thread.start()
+
+    def pause(self):
+        with self._lock:
+            if self._state == ThreadState.RUNNING:
+                self._state = ThreadState.PAUSED
+                self._pause_event.clear()
+
+    def resume(self):
+        with self._lock:
+            if self._state == ThreadState.PAUSED:
+                self._state = ThreadState.RUNNING
+                self._pause_event.set()
+
+    def terminate(self):
+        self._stop_event.set()
+        self._pause_event.set()  # Unblock if paused
+        with self._lock:
+            self._state = ThreadState.TERMINATED
+
+    def join(self, timeout=None):
+        self._thread.join(timeout=timeout)
+
+    @property
+    def state(self) -> ThreadState:
+        with self._lock:
+            return self._state
+
+    def get_metrics(self) -> ThreadMetrics:
+        return ThreadMetrics(
+            thread_id=self.thread_id,
+            name=self.name,
+            state=self.state.value,
+            start_time=self.start_time,
+            end_time=self.end_time,
+            error=self.error,
+            result=str(self.result) if self.result is not None else None,
+            priority=self.priority
+        )
+
+
+class ThreadPool:
+    """Scalable thread pool with task queue and worker management."""
+
+    def __init__(self, min_workers: int = 4, max_workers: int = 100):
+        self.min_workers = min_workers
+        self.max_workers = max_workers
+        self._task_queue: queue.PriorityQueue = queue.PriorityQueue()
+        self._workers: List[threading.Thread] = []
+        self._active_tasks = 0
+        self._lock = threading.Lock()
+        self._shutdown = threading.Event()
+        self._tasks_completed = 0
+        self._tasks_failed = 0
+        self._results: Dict[str, Any] = {}
+        self._start_workers(min_workers)
+
+    def _start_workers(self, count: int):
+        for _ in range(count):
+            t = threading.Thread(target=self._worker_loop, daemon=True)
+            t.start()
+            self._workers.append(t)
+
+    def _worker_loop(self):
+        while not self._shutdown.is_set():
+            try:
+                priority, task_id, fn, args, kwargs = self._task_queue.get(timeout=1.0)
+                with self._lock:
+                    self._active_tasks += 1
+                try:
+                    result = fn(*args, **kwargs)
+                    self._results[task_id] = {"status": "success", "result": result}
+                    with self._lock:
+                        self._tasks_completed += 1
+                except Exception as e:
+                    self._results[task_id] = {"status": "failed", "error": str(e)}
+                    with self._lock:
+                        self._tasks_failed += 1
+                finally:
+                    with self._lock:
+                        self._active_tasks -= 1
+                    self._task_queue.task_done()
+            except queue.Empty:
+                continue
+
+    def submit(self, fn: Callable, *args, priority: int = 5, **kwargs) -> str:
+        task_id = str(uuid.uuid4())[:8]
+        self._task_queue.put((priority, task_id, fn, args, kwargs))
+        return task_id
+
+    def get_result(self, task_id: str) -> Optional[Dict]:
+        return self._results.get(task_id)
+
+    def shutdown(self, wait: bool = True):
+        self._shutdown.set()
+        if wait:
+            for w in self._workers:
+                w.join(timeout=2)
+
+    def get_stats(self) -> Dict:
+        with self._lock:
+            return {
+                "workers": len(self._workers),
+                "active_tasks": self._active_tasks,
+                "queued_tasks": self._task_queue.qsize(),
+                "completed": self._tasks_completed,
+                "failed": self._tasks_failed,
+            }
+
+
+class Barrier:
+    """Reusable barrier for synchronizing multiple threads at a checkpoint."""
+
+    def __init__(self, parties: int):
+        self._parties = parties
+        self._count = 0
+        self._lock = threading.Lock()
+        self._event = threading.Event()
+        self._generation = 0
+
+    def wait(self, timeout=None) -> bool:
+        with self._lock:
+            gen = self._generation
+            self._count += 1
+            if self._count == self._parties:
+                self._count = 0
+                self._generation += 1
+                self._event.set()
+                self._event = threading.Event()
+                return True
+        return self._event.wait(timeout=timeout)
+
+
+class ReadWriteLock:
+    """A readers-writer lock: multiple readers or one writer at a time."""
+
+    def __init__(self):
+        self._read_ready = threading.Condition(threading.Lock())
+        self._readers = 0
+
+    @contextmanager
+    def read_lock(self):
+        with self._read_ready:
+            self._readers += 1
+        try:
+            yield
+        finally:
+            with self._read_ready:
+                self._readers -= 1
+                if self._readers == 0:
+                    self._read_ready.notify_all()
+
+    @contextmanager
+    def write_lock(self):
+        with self._read_ready:
+            while self._readers > 0:
+                self._read_ready.wait()
+            yield
+
+
+class ThreadManager:
+    """
+    Central manager for all thread lifecycle operations.
+    Supports creation, monitoring, synchronization, and termination.
+    """
+
+    def __init__(self, max_threads: int = 1000):
+        self.max_threads = max_threads
+        self._threads: Dict[str, ManagedThread] = {}
+        self._lock = threading.Lock()
+        self._pool: Optional[ThreadPool] = None
+        self._barriers: Dict[str, Barrier] = {}
+        self._rw_locks: Dict[str, ReadWriteLock] = {}
+        self._event_log: List[Dict] = []
+
+    def _log(self, message: str, level: str = "INFO"):
+        entry = {"time": time.strftime("%H:%M:%S"), "level": level, "message": message}
+        self._event_log.append(entry)
+        if len(self._event_log) > 200:
+            self._event_log.pop(0)
+
+    def create_thread(self, name: str, target: Callable,
+                      args=(), kwargs=None, priority: int = 5) -> str:
+        with self._lock:
+            if len(self._threads) >= self.max_threads:
+                raise RuntimeError(f"Thread limit ({self.max_threads}) reached.")
+            thread_id = str(uuid.uuid4())[:8]
+            mt = ManagedThread(thread_id, name, target, args, kwargs or {}, priority)
+            self._threads[thread_id] = mt
+            self._log(f"Created thread '{name}' (ID: {thread_id})")
+            return thread_id
+
+    def start_thread(self, thread_id: str):
+        with self._lock:
+            t = self._threads.get(thread_id)
+        if not t:
+            raise ValueError(f"Thread {thread_id} not found.")
+        t.start()
+        self._log(f"Started thread '{t.name}' (ID: {thread_id})")
+
+    def pause_thread(self, thread_id: str):
+        with self._lock:
+            t = self._threads.get(thread_id)
+        if t:
+            t.pause()
+            self._log(f"Paused thread '{t.name}'")
+
+    def resume_thread(self, thread_id: str):
+        with self._lock:
+            t = self._threads.get(thread_id)
+        if t:
+            t.resume()
+            self._log(f"Resumed thread '{t.name}'")
+
+    def terminate_thread(self, thread_id: str):
+        with self._lock:
+            t = self._threads.get(thread_id)
+        if t:
+            t.terminate()
+            self._log(f"Terminated thread '{t.name}'", "WARNING")
+
+    def get_all_metrics(self) -> List[Dict]:
+        with self._lock:
+            threads = list(self._threads.values())
+        return [t.get_metrics().__dict__ for t in threads]
+
+    def get_summary(self) -> Dict:
+        metrics = self.get_all_metrics()
+        states = {}
+        for m in metrics:
+            s = m["state"]
+            states[s] = states.get(s, 0) + 1
+        pool_stats = self._pool.get_stats() if self._pool else {}
+        return {
+            "total_threads": len(metrics),
+            "states": states,
+            "pool": pool_stats,
+            "event_log": self._event_log[-20:],
+        }
+
+    def enable_pool(self, min_workers=4, max_workers=50):
+        self._pool = ThreadPool(min_workers, max_workers)
+        self._log(f"Thread pool enabled ({min_workers}-{max_workers} workers)")
+
+    def submit_to_pool(self, fn: Callable, *args, priority=5, **kwargs) -> str:
+        if not self._pool:
+            raise RuntimeError("Thread pool not enabled.")
+        return self._pool.submit(fn, *args, priority=priority, **kwargs)
+
+    def create_barrier(self, name: str, parties: int) -> str:
+        self._barriers[name] = Barrier(parties)
+        self._log(f"Barrier '{name}' created for {parties} threads")
+        return name
+
+    def cleanup_done(self):
+        with self._lock:
+            done = [tid for tid, t in self._threads.items()
+                    if t.state in (ThreadState.COMPLETED, ThreadState.FAILED, ThreadState.TERMINATED)]
+            for tid in done:
+                del self._threads[tid]
+        self._log(f"Cleaned up {len(done)} finished threads")
+        return len(done)
+
+    def shutdown(self):
+        with self._lock:
+            for t in self._threads.values():
+                t.terminate()
+        if self._pool:
+            self._pool.shutdown()
+        self._log("ThreadManager shut down.", "WARNING")
