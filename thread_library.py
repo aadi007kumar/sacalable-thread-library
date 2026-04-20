@@ -11,7 +11,7 @@ import uuid
 import logging
 import queue
 from enum import Enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional, Dict, List, Any
 from contextlib import contextmanager
 
@@ -33,6 +33,7 @@ class ThreadMetrics:
     thread_id: str
     name: str
     state: str
+    created_time: Optional[float] = None
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     cpu_time: float = 0.0
@@ -67,8 +68,11 @@ class ManagedThread:
         self._stop_event = threading.Event()
         self.result = None
         self.error = None
+        self.created_time = time.time()
         self.start_time = None
         self.end_time = None
+        self._state_history = []
+        self._record_state(ThreadState.PENDING)
 
         self._thread = threading.Thread(
             target=self._run_wrapper,
@@ -76,21 +80,31 @@ class ManagedThread:
             daemon=daemon
         )
 
+    def _record_state(self, state: ThreadState):
+        self._state_history.append({
+            "state": state.value,
+            "time": round(time.time(), 4),
+        })
+
+    def _set_state(self, state: ThreadState):
+        with self._lock:
+            changed = self._state != state
+            self._state = state
+            if changed:
+                self._record_state(state)
+
     def _run_wrapper(self):
         self.start_time = time.time()
-        with self._lock:
-            self._state = ThreadState.RUNNING
+        self._set_state(ThreadState.RUNNING)
         try:
             self.result = self._target(*self._args, **self._kwargs,
                                        pause_event=self._pause_event,
                                        stop_event=self._stop_event)
-            with self._lock:
-                if self._state != ThreadState.TERMINATED:
-                    self._state = ThreadState.COMPLETED
+            if self.state != ThreadState.TERMINATED:
+                self._set_state(ThreadState.COMPLETED)
         except Exception as e:
             self.error = str(e)
-            with self._lock:
-                self._state = ThreadState.FAILED
+            self._set_state(ThreadState.FAILED)
             logger.error(f"Thread '{self.name}' failed: {e}")
         finally:
             self.end_time = time.time()
@@ -99,22 +113,19 @@ class ManagedThread:
         self._thread.start()
 
     def pause(self):
-        with self._lock:
-            if self._state == ThreadState.RUNNING:
-                self._state = ThreadState.PAUSED
-                self._pause_event.clear()
+        if self.state == ThreadState.RUNNING:
+            self._pause_event.clear()
+            self._set_state(ThreadState.PAUSED)
 
     def resume(self):
-        with self._lock:
-            if self._state == ThreadState.PAUSED:
-                self._state = ThreadState.RUNNING
-                self._pause_event.set()
+        if self.state == ThreadState.PAUSED:
+            self._pause_event.set()
+            self._set_state(ThreadState.RUNNING)
 
     def terminate(self):
         self._stop_event.set()
         self._pause_event.set()  # Unblock if paused
-        with self._lock:
-            self._state = ThreadState.TERMINATED
+        self._set_state(ThreadState.TERMINATED)
 
     def join(self, timeout=None):
         self._thread.join(timeout=timeout)
@@ -129,12 +140,24 @@ class ManagedThread:
             thread_id=self.thread_id,
             name=self.name,
             state=self.state.value,
+            created_time=self.created_time,
             start_time=self.start_time,
             end_time=self.end_time,
             error=self.error,
             result=str(self.result) if self.result is not None else None,
             priority=self.priority
         )
+
+    def get_details(self) -> Dict[str, Any]:
+        metrics = self.get_metrics().__dict__.copy()
+        metrics.update({
+            "target": getattr(self._target, "__name__", "unknown"),
+            "args": [str(arg) for arg in self._args],
+            "kwargs": {key: str(value) for key, value in self._kwargs.items()},
+            "state_history": list(self._state_history),
+            "is_alive": self._thread.is_alive(),
+        })
+        return metrics
 
 
 class ThreadPool:
@@ -151,7 +174,14 @@ class ThreadPool:
         self._tasks_completed = 0
         self._tasks_failed = 0
         self._results: Dict[str, Any] = {}
+        self._task_history: List[Dict[str, Any]] = []
         self._start_workers(min_workers)
+
+    def _find_task_record(self, task_id: str) -> Optional[Dict[str, Any]]:
+        for task in self._task_history:
+            if task["task_id"] == task_id:
+                return task
+        return None
 
     def _start_workers(self, count: int):
         for _ in range(count):
@@ -165,15 +195,29 @@ class ThreadPool:
                 priority, task_id, fn, args, kwargs = self._task_queue.get(timeout=1.0)
                 with self._lock:
                     self._active_tasks += 1
+                    task = self._find_task_record(task_id)
+                    if task:
+                        task["status"] = "running"
+                        task["started_at"] = round(time.time(), 4)
                 try:
                     result = fn(*args, **kwargs)
                     self._results[task_id] = {"status": "success", "result": result}
                     with self._lock:
                         self._tasks_completed += 1
+                        task = self._find_task_record(task_id)
+                        if task:
+                            task["status"] = "success"
+                            task["completed_at"] = round(time.time(), 4)
+                            task["result"] = str(result)
                 except Exception as e:
                     self._results[task_id] = {"status": "failed", "error": str(e)}
                     with self._lock:
                         self._tasks_failed += 1
+                        task = self._find_task_record(task_id)
+                        if task:
+                            task["status"] = "failed"
+                            task["completed_at"] = round(time.time(), 4)
+                            task["error"] = str(e)
                 finally:
                     with self._lock:
                         self._active_tasks -= 1
@@ -183,6 +227,17 @@ class ThreadPool:
 
     def submit(self, fn: Callable, *args, priority: int = 5, **kwargs) -> str:
         task_id = str(uuid.uuid4())[:8]
+        with self._lock:
+            self._task_history.append({
+                "task_id": task_id,
+                "fn": getattr(fn, "__name__", "anonymous"),
+                "priority": priority,
+                "args": [str(arg) for arg in args],
+                "kwargs": {key: str(value) for key, value in kwargs.items()},
+                "status": "queued",
+                "submitted_at": round(time.time(), 4),
+            })
+            self._task_history = self._task_history[-100:]
         self._task_queue.put((priority, task_id, fn, args, kwargs))
         return task_id
 
@@ -204,6 +259,10 @@ class ThreadPool:
                 "completed": self._tasks_completed,
                 "failed": self._tasks_failed,
             }
+
+    def get_task_history(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(reversed(self._task_history))
 
 
 class Barrier:
@@ -299,23 +358,26 @@ class ThreadManager:
     def pause_thread(self, thread_id: str):
         with self._lock:
             t = self._threads.get(thread_id)
-        if t:
-            t.pause()
-            self._log(f"Paused thread '{t.name}'")
+        if not t:
+            raise ValueError(f"Thread {thread_id} not found.")
+        t.pause()
+        self._log(f"Paused thread '{t.name}'")
 
     def resume_thread(self, thread_id: str):
         with self._lock:
             t = self._threads.get(thread_id)
-        if t:
-            t.resume()
-            self._log(f"Resumed thread '{t.name}'")
+        if not t:
+            raise ValueError(f"Thread {thread_id} not found.")
+        t.resume()
+        self._log(f"Resumed thread '{t.name}'")
 
     def terminate_thread(self, thread_id: str):
         with self._lock:
             t = self._threads.get(thread_id)
-        if t:
-            t.terminate()
-            self._log(f"Terminated thread '{t.name}'", "WARNING")
+        if not t:
+            raise ValueError(f"Thread {thread_id} not found.")
+        t.terminate()
+        self._log(f"Terminated thread '{t.name}'", "WARNING")
 
     def get_all_metrics(self) -> List[Dict]:
         with self._lock:
@@ -328,10 +390,18 @@ class ThreadManager:
         for m in metrics:
             s = m["state"]
             states[s] = states.get(s, 0) + 1
+        running = [m for m in metrics if m["state"] == ThreadState.RUNNING.value]
+        finished = [m for m in metrics if m["state"] in (
+            ThreadState.COMPLETED.value,
+            ThreadState.FAILED.value,
+            ThreadState.TERMINATED.value,
+        )]
         pool_stats = self._pool.get_stats() if self._pool else {}
         return {
             "total_threads": len(metrics),
             "states": states,
+            "live_threads": len(running),
+            "finished_threads": len(finished),
             "pool": pool_stats,
             "event_log": self._event_log[-20:],
         }
@@ -344,6 +414,18 @@ class ThreadManager:
         if not self._pool:
             raise RuntimeError("Thread pool not enabled.")
         return self._pool.submit(fn, *args, priority=priority, **kwargs)
+
+    def get_pool_tasks(self) -> List[Dict[str, Any]]:
+        if not self._pool:
+            return []
+        return self._pool.get_task_history()
+
+    def get_thread_details(self, thread_id: str) -> Dict[str, Any]:
+        with self._lock:
+            thread = self._threads.get(thread_id)
+        if not thread:
+            raise ValueError(f"Thread {thread_id} not found.")
+        return thread.get_details()
 
     def create_barrier(self, name: str, parties: int) -> str:
         self._barriers[name] = Barrier(parties)
@@ -358,6 +440,32 @@ class ThreadManager:
                 del self._threads[tid]
         self._log(f"Cleaned up {len(done)} finished threads")
         return len(done)
+
+    def bulk_action(self, action: str) -> int:
+        with self._lock:
+            threads = list(self._threads.values())
+
+        count = 0
+        for thread in threads:
+            if action == "pause" and thread.state == ThreadState.RUNNING:
+                thread.pause()
+                count += 1
+            elif action == "resume" and thread.state == ThreadState.PAUSED:
+                thread.resume()
+                count += 1
+            elif action == "terminate" and thread.state in (
+                ThreadState.PENDING,
+                ThreadState.RUNNING,
+                ThreadState.PAUSED,
+            ):
+                thread.terminate()
+                count += 1
+
+        if action == "cleanup":
+            return self.cleanup_done()
+
+        self._log(f"Bulk action '{action}' applied to {count} threads")
+        return count
 
     def shutdown(self):
         with self._lock:

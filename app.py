@@ -16,6 +16,10 @@ manager = ThreadManager(max_threads=1000)
 manager.enable_pool(min_workers=4, max_workers=50)
 
 
+def error_response(message: str, status: int = 400):
+    return jsonify({"error": message}), status
+
+
 # ─── Demo Worker Functions ────────────────────────────────────────────────────
 
 def cpu_task(duration: float = 2.0, pause_event=None, stop_event=None, **_):
@@ -59,6 +63,14 @@ def summary():
     return jsonify(manager.get_summary())
 
 
+@app.route("/api/threads/<tid>", methods=["GET"])
+def thread_details(tid):
+    try:
+        return jsonify(manager.get_thread_details(tid))
+    except ValueError as exc:
+        return error_response(str(exc), 404)
+
+
 @app.route("/api/threads/create", methods=["POST"])
 def create_thread():
     data = request.json or {}
@@ -78,20 +90,38 @@ def create_thread():
 
 @app.route("/api/threads/<tid>/pause", methods=["POST"])
 def pause_thread(tid):
-    manager.pause_thread(tid)
-    return jsonify({"message": f"Thread {tid} paused."})
+    try:
+        manager.pause_thread(tid)
+        return jsonify({"message": f"Thread {tid} paused."})
+    except ValueError as exc:
+        return error_response(str(exc), 404)
 
 
 @app.route("/api/threads/<tid>/resume", methods=["POST"])
 def resume_thread(tid):
-    manager.resume_thread(tid)
-    return jsonify({"message": f"Thread {tid} resumed."})
+    try:
+        manager.resume_thread(tid)
+        return jsonify({"message": f"Thread {tid} resumed."})
+    except ValueError as exc:
+        return error_response(str(exc), 404)
 
 
 @app.route("/api/threads/<tid>/terminate", methods=["POST"])
 def terminate_thread(tid):
-    manager.terminate_thread(tid)
-    return jsonify({"message": f"Thread {tid} terminated."})
+    try:
+        manager.terminate_thread(tid)
+        return jsonify({"message": f"Thread {tid} terminated."})
+    except ValueError as exc:
+        return error_response(str(exc), 404)
+
+
+@app.route("/api/threads/bulk", methods=["POST"])
+def bulk_threads():
+    action = (request.json or {}).get("action", "").strip().lower()
+    if action not in {"pause", "resume", "terminate", "cleanup"}:
+        return error_response("Invalid bulk action.", 400)
+    count = manager.bulk_action(action)
+    return jsonify({"message": f"Bulk action '{action}' applied to {count} threads.", "count": count})
 
 
 @app.route("/api/threads/cleanup", methods=["POST"])
@@ -115,6 +145,11 @@ def pool_submit():
 def pool_stats():
     stats = manager._pool.get_stats() if manager._pool else {}
     return jsonify(stats)
+
+
+@app.route("/api/pool/tasks", methods=["GET"])
+def pool_tasks():
+    return jsonify(manager.get_pool_tasks())
 
 
 # ─── Stress Test ──────────────────────────────────────────────────────────────
