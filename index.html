@@ -534,10 +534,15 @@
         <div class="panel-body">
           <div class="mini-grid">
             <div class="mini-card"><div class="mini-label">Workers</div><div class="mini-value" id="pool-workers">-</div></div>
+            <div class="mini-card"><div class="mini-label">Range</div><div class="mini-value" id="pool-range">-</div></div>
+            <div class="mini-card"><div class="mini-label">Peak</div><div class="mini-value" id="pool-peak">-</div></div>
+            <div class="mini-card"><div class="mini-label">Active</div><div class="mini-value" id="pool-active">-</div></div>
             <div class="mini-card"><div class="mini-label">Queued</div><div class="mini-value" id="pool-queued">-</div></div>
             <div class="mini-card" style="--accent-color: var(--success)"><div class="mini-label">Done</div><div class="mini-value" id="pool-done">-</div></div>
             <div class="mini-card" style="--accent-color: var(--accent3)"><div class="mini-label">Failed</div><div class="mini-value" id="pool-fail">-</div></div>
           </div>
+          <div class="thread-section-title">Scaling Status</div>
+          <div id="pool-scaling-status" class="empty-state">Pool scaling metrics will appear here.</div>
           <div class="thread-section-title">Recent Pool Tasks</div>
           <div id="pool-task-list" class="task-list">
             <div class="empty-state">No pool tasks submitted yet.</div>
@@ -738,10 +743,32 @@ function updateStats(summary, threads) {
 
   const pool = summary.pool || {};
   document.getElementById('stat-pool').textContent = (pool.queued_tasks || 0) + (pool.active_tasks || 0);
-  document.getElementById('pool-workers').textContent = pool.workers ?? '-';
+  const workers = pool.workers ?? 0;
+  const minWorkers = pool.min_workers ?? null;
+  const maxWorkers = pool.max_workers ?? null;
+  const peakWorkers = pool.peak_workers ?? null;
+  const activeTasks = pool.active_tasks ?? 0;
+  const queuedTasks = pool.queued_tasks ?? 0;
+  document.getElementById('pool-workers').textContent = maxWorkers != null ? `${workers}/${maxWorkers}` : (pool.workers ?? '-');
+  document.getElementById('pool-range').textContent = minWorkers != null && maxWorkers != null ? `${minWorkers}-${maxWorkers}` : '-';
+  document.getElementById('pool-peak').textContent = peakWorkers ?? '-';
+  document.getElementById('pool-active').textContent = activeTasks;
   document.getElementById('pool-queued').textContent = pool.queued_tasks ?? '-';
   document.getElementById('pool-done').textContent = pool.completed ?? '-';
   document.getElementById('pool-fail').textContent = pool.failed ?? '-';
+
+  const scalingStatus = document.getElementById('pool-scaling-status');
+  if (maxWorkers == null) {
+    scalingStatus.textContent = 'Pool metrics unavailable.';
+  } else if (queuedTasks > 0 && workers < maxWorkers) {
+    scalingStatus.textContent = `Scaling up under load: ${workers} workers active with ${queuedTasks} queued tasks.`;
+  } else if (workers > (minWorkers ?? workers) && activeTasks === 0 && queuedTasks === 0) {
+    scalingStatus.textContent = `Scaling down toward baseline: ${workers} workers active, minimum target is ${minWorkers}.`;
+  } else if (workers === maxWorkers && queuedTasks > 0) {
+    scalingStatus.textContent = `At max capacity: ${workers}/${maxWorkers} workers with ${queuedTasks} queued tasks.`;
+  } else {
+    scalingStatus.textContent = `Stable: ${workers} workers, ${activeTasks} active tasks, ${queuedTasks} queued, peak ${peakWorkers ?? '-'}.`;
+  }
 
   stateChart.data.datasets[0].data = [
     states.RUNNING || 0,
@@ -901,4 +928,3 @@ poll();
 </script>
 </body>
 </html>
-
