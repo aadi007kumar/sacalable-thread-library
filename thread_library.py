@@ -286,6 +286,16 @@ class ThreadPool:
     def get_result(self, task_id: str) -> Optional[Dict]:
         return self._results.get(task_id)
 
+    def get_task_details(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            task = self._find_task_record(task_id)
+            if not task:
+                return None
+            details = dict(task)
+            result = self._results.get(task_id, {})
+            details.update(result)
+            return details
+
     def shutdown(self, wait: bool = True):
         self._shutdown.set()
         if wait:
@@ -465,6 +475,14 @@ class ThreadManager:
         if not self._pool:
             return []
         return self._pool.get_task_history()
+
+    def get_pool_task_details(self, task_id: str) -> Dict[str, Any]:
+        if not self._pool:
+            raise RuntimeError("Thread pool not enabled.")
+        details = self._pool.get_task_details(task_id)
+        if not details:
+            raise ValueError(f"Pool task {task_id} not found.")
+        return details
 
     def get_thread_details(self, thread_id: str) -> Dict[str, Any]:
         with self._lock:

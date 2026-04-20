@@ -325,6 +325,13 @@
     border-radius: 8px;
     padding: .65rem .75rem;
   }
+  .task-row {
+    cursor: pointer;
+  }
+  .task-row.active {
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 1px rgba(123,97,255,.25) inset;
+  }
   .history-item, .task-head, .log-entry {
     display: flex;
     justify-content: space-between;
@@ -547,6 +554,10 @@
           <div id="pool-task-list" class="task-list">
             <div class="empty-state">No pool tasks submitted yet.</div>
           </div>
+          <div class="thread-section-title">Selected Pool Task</div>
+          <div id="pool-task-details">
+            <div class="empty-state">Select a pool task to inspect its result and lifecycle.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -558,7 +569,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const API = 'http://localhost:5000/api';
-const appState = { threads: [], selectedThreadId: null };
+const appState = { threads: [], selectedThreadId: null, selectedPoolTaskId: null, poolTasks: [] };
 
 setInterval(() => {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
@@ -718,11 +729,15 @@ function renderLog(entries) {
 function renderPoolTasks(tasks) {
   const el = document.getElementById('pool-task-list');
   if (!tasks.length) {
+    if (appState.selectedPoolTaskId) {
+      appState.selectedPoolTaskId = null;
+      document.getElementById('pool-task-details').innerHTML = '<div class="empty-state">Select a pool task to inspect its result and lifecycle.</div>';
+    }
     el.innerHTML = '<div class="empty-state">No pool tasks submitted yet.</div>';
     return;
   }
   el.innerHTML = tasks.slice(0, 8).map(task => `
-    <div class="task-row">
+    <div class="task-row${appState.selectedPoolTaskId === task.task_id ? ' active' : ''}" onclick="selectPoolTask('${task.task_id}')">
       <div class="task-head">
         <span>${escapeHtml(task.fn)} #${task.task_id}</span>
         <span class="status-${task.status}">${task.status.toUpperCase()}</span>
@@ -731,6 +746,27 @@ function renderPoolTasks(tasks) {
       <div style="margin-top:.35rem;">${task.result ? `Result: ${escapeHtml(task.result)}` : task.error ? `Error: ${escapeHtml(task.error)}` : 'Waiting for completion'}</div>
     </div>
   `).join('');
+}
+
+async function selectPoolTask(taskId) {
+  appState.selectedPoolTaskId = taskId;
+  renderPoolTasks(appState.poolTasks);
+  const details = await apiCall(`/pool/tasks/${taskId}`);
+  document.getElementById('pool-task-details').innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-card"><div class="detail-label">Task</div><div class="detail-value">#${escapeHtml(details.task_id)}</div></div>
+      <div class="detail-card"><div class="detail-label">Function</div><div class="detail-value">${escapeHtml(details.fn)}</div></div>
+      <div class="detail-card"><div class="detail-label">Status</div><div class="detail-value">${escapeHtml(details.status || '-')}</div></div>
+      <div class="detail-card"><div class="detail-label">Priority</div><div class="detail-value">P${escapeHtml(details.priority)}</div></div>
+      <div class="detail-card"><div class="detail-label">Submitted</div><div class="detail-value">${formatTime(details.submitted_at)}</div></div>
+      <div class="detail-card"><div class="detail-label">Started</div><div class="detail-value">${formatTime(details.started_at)}</div></div>
+      <div class="detail-card"><div class="detail-label">Completed</div><div class="detail-value">${formatTime(details.completed_at)}</div></div>
+      <div class="detail-card"><div class="detail-label">Args</div><div class="detail-value">${escapeHtml((details.args || []).join(', ') || '-')}</div></div>
+      <div class="detail-card"><div class="detail-label">Kwargs</div><div class="detail-value">${escapeHtml(JSON.stringify(details.kwargs || {}))}</div></div>
+      <div class="detail-card"><div class="detail-label">Result</div><div class="detail-value">${escapeHtml(details.result ?? '-')}</div></div>
+      <div class="detail-card"><div class="detail-label">Error</div><div class="detail-value">${escapeHtml(details.error ?? '-')}</div></div>
+    </div>
+  `;
 }
 
 function updateStats(summary, threads) {
@@ -816,10 +852,14 @@ async function poll() {
       apiCall('/pool/tasks'),
     ]);
     appState.threads = threads;
+    appState.poolTasks = poolTasks;
     renderThreads(threads);
     renderLog(summary.event_log || []);
     renderPoolTasks(poolTasks);
     updateStats(summary, threads);
+    if (appState.selectedPoolTaskId && poolTasks.some(task => task.task_id === appState.selectedPoolTaskId)) {
+      selectPoolTask(appState.selectedPoolTaskId);
+    }
   } catch (e) {
     document.getElementById('event-log').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
   }

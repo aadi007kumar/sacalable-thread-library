@@ -152,6 +152,16 @@ def pool_tasks():
     return jsonify(manager.get_pool_tasks())
 
 
+@app.route("/api/pool/tasks/<task_id>", methods=["GET"])
+def pool_task_details(task_id):
+    try:
+        return jsonify(manager.get_pool_task_details(task_id))
+    except ValueError as exc:
+        return error_response(str(exc), 404)
+    except RuntimeError as exc:
+        return error_response(str(exc), 400)
+
+
 # ─── Stress Test ──────────────────────────────────────────────────────────────
 
 @app.route("/api/stress", methods=["POST"])
