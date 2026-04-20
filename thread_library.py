@@ -164,6 +164,11 @@ class ThreadPool:
     """Scalable thread pool with task queue and worker management."""
 
     def __init__(self, min_workers: int = 4, max_workers: int = 100):
+        if min_workers < 1:
+            raise ValueError("min_workers must be at least 1.")
+        if max_workers < min_workers:
+            raise ValueError("max_workers must be greater than or equal to min_workers.")
+
         self.min_workers = min_workers
         self.max_workers = max_workers
         self._task_queue: queue.PriorityQueue = queue.PriorityQueue()
@@ -175,6 +180,8 @@ class ThreadPool:
         self._tasks_failed = 0
         self._results: Dict[str, Any] = {}
         self._task_history: List[Dict[str, Any]] = []
+        self._peak_workers = 0
+        self._worker_idle_timeout = 1.0
         self._start_workers(min_workers)
 
     def _find_task_record(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -183,16 +190,45 @@ class ThreadPool:
                 return task
         return None
 
+    def _prune_dead_workers_locked(self):
+        self._workers = [worker for worker in self._workers if worker.is_alive()]
+
     def _start_workers(self, count: int):
-        for _ in range(count):
-            t = threading.Thread(target=self._worker_loop, daemon=True)
-            t.start()
-            self._workers.append(t)
+        if count <= 0:
+            return
+        with self._lock:
+            self._prune_dead_workers_locked()
+            capacity = self.max_workers - len(self._workers)
+            count = min(count, capacity)
+            new_workers = []
+            for _ in range(count):
+                t = threading.Thread(target=self._worker_loop, daemon=True)
+                t.start()
+                new_workers.append(t)
+            self._workers.extend(new_workers)
+            self._peak_workers = max(self._peak_workers, len(self._workers))
+
+    def _scale_up_if_needed(self):
+        with self._lock:
+            self._prune_dead_workers_locked()
+            queued_tasks = self._task_queue.qsize()
+            current_workers = len(self._workers)
+            desired_workers = min(
+                self.max_workers,
+                max(self.min_workers, self._active_tasks + queued_tasks),
+            )
+            workers_to_add = desired_workers - current_workers
+        if workers_to_add > 0:
+            self._start_workers(workers_to_add)
+
+    def _retire_current_worker_locked(self):
+        current = threading.current_thread()
+        self._workers = [worker for worker in self._workers if worker is not current]
 
     def _worker_loop(self):
         while not self._shutdown.is_set():
             try:
-                priority, task_id, fn, args, kwargs = self._task_queue.get(timeout=1.0)
+                priority, task_id, fn, args, kwargs = self._task_queue.get(timeout=self._worker_idle_timeout)
                 with self._lock:
                     self._active_tasks += 1
                     task = self._find_task_record(task_id)
@@ -223,6 +259,11 @@ class ThreadPool:
                         self._active_tasks -= 1
                     self._task_queue.task_done()
             except queue.Empty:
+                with self._lock:
+                    self._prune_dead_workers_locked()
+                    if len(self._workers) > self.min_workers:
+                        self._retire_current_worker_locked()
+                        return
                 continue
 
     def submit(self, fn: Callable, *args, priority: int = 5, **kwargs) -> str:
@@ -239,6 +280,7 @@ class ThreadPool:
             })
             self._task_history = self._task_history[-100:]
         self._task_queue.put((priority, task_id, fn, args, kwargs))
+        self._scale_up_if_needed()
         return task_id
 
     def get_result(self, task_id: str) -> Optional[Dict]:
@@ -252,8 +294,12 @@ class ThreadPool:
 
     def get_stats(self) -> Dict:
         with self._lock:
+            self._prune_dead_workers_locked()
             return {
                 "workers": len(self._workers),
+                "min_workers": self.min_workers,
+                "max_workers": self.max_workers,
+                "peak_workers": self._peak_workers,
                 "active_tasks": self._active_tasks,
                 "queued_tasks": self._task_queue.qsize(),
                 "completed": self._tasks_completed,
