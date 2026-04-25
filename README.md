@@ -53,3 +53,11 @@ npm run dev
 npm run build
 npm start
 ```
+
+## Python API Additions
+
+The Flask demo API in [app.py](/C:/Users/Pawan/OneDrive/Documents/scalable-thread-library/app.py) now supports:
+
+- Dynamic thread-pool resizing with `POST /api/pool/config`
+- Timeout-aware pool submissions with `POST /api/pool/submit` and `timeout_seconds`
+- Stress launch profiles with `POST /api/stress` using `profile=medium` for 20 threads or `profile=high` for 30 threads

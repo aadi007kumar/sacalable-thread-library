@@ -701,6 +701,37 @@ function renderThreadsPage() {
             <button class="action primary" type="submit">Create Thread</button>
           </div>
         </form>
+        <div class="field" style="margin-top:16px;">
+          <label class="label">Stress Profile</label>
+          <div class="btn-row">
+            <button class="action secondary" type="button" onclick="runStressProfile('medium')">Launch 20 Threads</button>
+            <button class="action cyan" type="button" onclick="runStressProfile('high')">Launch 30 Threads</button>
+          </div>
+        </div>
+        <div class="field" style="margin-top:16px;">
+          <label class="label">Pool Submission</label>
+          <form class="grid-form" onsubmit="submitPoolTasks(event)">
+            <div class="field">
+              <label class="label">Task Count</label>
+              <input id="pool-submit-count" type="number" min="1" max="50" value="5" />
+            </div>
+            <div class="field">
+              <label class="label">Work Size</label>
+              <input id="pool-submit-size" type="number" min="10" max="5000" value="200" />
+            </div>
+            <div class="field">
+              <label class="label">Delay</label>
+              <input id="pool-submit-delay" type="number" min="0" max="30" step="0.1" value="0" />
+            </div>
+            <div class="field">
+              <label class="label">Timeout</label>
+              <input id="pool-submit-timeout" type="number" min="0" max="30" step="0.1" value="0" />
+            </div>
+            <div class="field span-2">
+              <button class="action secondary" type="submit">Submit Pool Tasks</button>
+            </div>
+          </form>
+        </div>
       </div>
       <div class="card">
         <span class="label">Queue Order</span>
@@ -926,6 +957,44 @@ function renderSettingsPage() {
         </div>
       </div>
       <div class="card">
+        <span class="label">Thread Pool</span>
+        <div class="settings-list" style="margin-top:14px;">
+          <div class="quick-item">
+            <strong>Pool Workers</strong>
+            <div class="helper">${state.summary.pool.workers ?? 0} active workers, range ${state.summary.pool.min_workers ?? "-"}-${state.summary.pool.max_workers ?? "-"}</div>
+          </div>
+          <div class="quick-item">
+            <strong>Pool Results</strong>
+            <div class="helper">Done ${state.summary.pool.completed ?? 0} • Failed ${state.summary.pool.failed ?? 0} • Timed out ${state.summary.pool.timed_out ?? 0}</div>
+          </div>
+          <form class="grid-form" onsubmit="resizePool(event)">
+            <div class="field">
+              <label class="label">Min Workers</label>
+              <input id="pool-min-workers" type="number" min="1" max="100" value="${state.summary.pool.min_workers ?? 4}" />
+            </div>
+            <div class="field">
+              <label class="label">Max Workers</label>
+              <input id="pool-max-workers" type="number" min="1" max="100" value="${state.summary.pool.max_workers ?? 50}" />
+            </div>
+            <div class="field span-2">
+              <button class="action cyan" type="submit">Resize Thread Pool</button>
+            </div>
+          </form>
+          <div class="queue-list">
+            ${(state.poolTasks || []).slice(0, 4).map((task) => `
+              <div class="queue-item">
+                <h3>${escapeHtml(task.fn)} #${task.task_id}</h3>
+                <div class="queue-meta">
+                  <span>${task.status}</span>
+                  <span>Priority ${task.priority}</span>
+                  <span>Timeout ${task.timeout_seconds ?? "-"}</span>
+                </div>
+              </div>
+            `).join("") || '<div class="empty">No recent pool tasks yet.</div>'}
+          </div>
+        </div>
+      </div>
+      <div class="card">
         <span class="label">System Controls</span>
         <div class="settings-list" style="margin-top:14px;">
           <button class="action secondary" onclick="schedulerPause()">Pause Running Threads</button>
@@ -986,6 +1055,63 @@ async function createThread(event) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function runStressProfile(profile) {
+  try {
+    const data = await apiCall("/stress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile }),
+    });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function submitPoolTasks(event) {
+  event.preventDefault();
+  const count = Number(document.getElementById("pool-submit-count").value) || 5;
+  const n = Number(document.getElementById("pool-submit-size").value) || 200;
+  const delay = Number(document.getElementById("pool-submit-delay").value) || 0;
+  const timeout = Number(document.getElementById("pool-submit-timeout").value) || 0;
+
+  try {
+    const data = await apiCall("/pool/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        count,
+        n,
+        delay,
+        timeout_seconds: timeout > 0 ? timeout : null,
+      }),
+    });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function resizePool(event) {
+  event.preventDefault();
+  const min_workers = Number(document.getElementById("pool-min-workers").value);
+  const max_workers = Number(document.getElementById("pool-max-workers").value);
+
+  try {
+    const data = await apiCall("/pool/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ min_workers, max_workers }),
     });
     toast(data.message);
     refresh();

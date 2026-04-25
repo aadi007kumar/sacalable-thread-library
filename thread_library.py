@@ -5,6 +5,7 @@ A high-performance thread management library supporting efficient creation,
 synchronization, and termination of thousands of concurrent threads.
 """
 
+import inspect
 import threading
 import time
 import uuid
@@ -178,10 +179,12 @@ class ThreadPool:
         self._shutdown = threading.Event()
         self._tasks_completed = 0
         self._tasks_failed = 0
+        self._tasks_timed_out = 0
         self._results: Dict[str, Any] = {}
         self._task_history: List[Dict[str, Any]] = []
         self._peak_workers = 0
         self._worker_idle_timeout = 1.0
+        self._desired_workers = min_workers
         self._start_workers(min_workers)
 
     def _find_task_record(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -193,6 +196,9 @@ class ThreadPool:
     def _prune_dead_workers_locked(self):
         self._workers = [worker for worker in self._workers if worker.is_alive()]
 
+    def _refresh_desired_workers_locked(self):
+        self._desired_workers = max(self.min_workers, min(self._desired_workers, self.max_workers))
+
     def _start_workers(self, count: int):
         if count <= 0:
             return
@@ -202,7 +208,11 @@ class ThreadPool:
             count = min(count, capacity)
             new_workers = []
             for _ in range(count):
-                t = threading.Thread(target=self._worker_loop, daemon=True)
+                t = threading.Thread(
+                    target=self._worker_loop,
+                    name=f"PoolWorker-{len(self._workers) + len(new_workers) + 1}",
+                    daemon=True,
+                )
                 t.start()
                 new_workers.append(t)
             self._workers.extend(new_workers)
@@ -215,7 +225,7 @@ class ThreadPool:
             current_workers = len(self._workers)
             desired_workers = min(
                 self.max_workers,
-                max(self.min_workers, self._active_tasks + queued_tasks),
+                max(self.min_workers, self._desired_workers, self._active_tasks + queued_tasks),
             )
             workers_to_add = desired_workers - current_workers
         if workers_to_add > 0:
@@ -228,23 +238,39 @@ class ThreadPool:
     def _worker_loop(self):
         while not self._shutdown.is_set():
             try:
-                priority, task_id, fn, args, kwargs = self._task_queue.get(timeout=self._worker_idle_timeout)
+                priority, task_id, fn, args, kwargs, timeout_seconds = self._task_queue.get(
+                    timeout=self._worker_idle_timeout
+                )
                 with self._lock:
                     self._active_tasks += 1
                     task = self._find_task_record(task_id)
                     if task:
                         task["status"] = "running"
                         task["started_at"] = round(time.time(), 4)
+                        task["worker_name"] = threading.current_thread().name
                 try:
-                    result = fn(*args, **kwargs)
-                    self._results[task_id] = {"status": "success", "result": result}
+                    outcome = self._execute_task(fn, args, kwargs, timeout_seconds)
+                    self._results[task_id] = outcome
                     with self._lock:
-                        self._tasks_completed += 1
                         task = self._find_task_record(task_id)
-                        if task:
-                            task["status"] = "success"
-                            task["completed_at"] = round(time.time(), 4)
-                            task["result"] = str(result)
+                        if outcome["status"] == "success":
+                            self._tasks_completed += 1
+                            if task:
+                                task["status"] = "success"
+                                task["completed_at"] = round(time.time(), 4)
+                                task["result"] = str(outcome["result"])
+                        elif outcome["status"] == "timed_out":
+                            self._tasks_timed_out += 1
+                            if task:
+                                task["status"] = "timed_out"
+                                task["completed_at"] = round(time.time(), 4)
+                                task["error"] = outcome["error"]
+                        else:
+                            self._tasks_failed += 1
+                            if task:
+                                task["status"] = "failed"
+                                task["completed_at"] = round(time.time(), 4)
+                                task["error"] = outcome["error"]
                 except Exception as e:
                     self._results[task_id] = {"status": "failed", "error": str(e)}
                     with self._lock:
@@ -261,12 +287,57 @@ class ThreadPool:
             except queue.Empty:
                 with self._lock:
                     self._prune_dead_workers_locked()
-                    if len(self._workers) > self.min_workers:
+                    if len(self._workers) > max(self.min_workers, self._desired_workers):
                         self._retire_current_worker_locked()
                         return
                 continue
 
-    def submit(self, fn: Callable, *args, priority: int = 5, **kwargs) -> str:
+    def _execute_task(self, fn: Callable, args: Any, kwargs: Dict[str, Any], timeout_seconds: Optional[float]):
+        if not timeout_seconds or timeout_seconds <= 0:
+            return self._run_task_direct(fn, args, kwargs)
+        return self._run_task_with_timeout(fn, args, kwargs, timeout_seconds)
+
+    def _run_task_direct(self, fn: Callable, args: Any, kwargs: Dict[str, Any]):
+        result = fn(*args, **kwargs)
+        return {"status": "success", "result": result}
+
+    def _run_task_with_timeout(self, fn: Callable, args: Any, kwargs: Dict[str, Any], timeout_seconds: float):
+        result_holder: Dict[str, Any] = {}
+        error_holder: Dict[str, str] = {}
+        finished = threading.Event()
+        stop_event = threading.Event()
+        call_kwargs = dict(kwargs)
+
+        try:
+            parameters = inspect.signature(fn).parameters
+            if "stop_event" in parameters and "stop_event" not in call_kwargs:
+                call_kwargs["stop_event"] = stop_event
+        except (TypeError, ValueError):
+            pass
+
+        def run():
+            try:
+                result_holder["result"] = fn(*args, **call_kwargs)
+            except Exception as exc:
+                error_holder["error"] = str(exc)
+            finally:
+                finished.set()
+
+        task_thread = threading.Thread(target=run, name=f"PoolTask-{uuid.uuid4().hex[:8]}", daemon=True)
+        task_thread.start()
+        if finished.wait(timeout_seconds):
+            if "error" in error_holder:
+                return {"status": "failed", "error": error_holder["error"]}
+            return {"status": "success", "result": result_holder.get("result")}
+
+        stop_event.set()
+        return {
+            "status": "timed_out",
+            "error": f"Task exceeded timeout of {timeout_seconds}s.",
+            "timeout_seconds": timeout_seconds,
+        }
+
+    def submit(self, fn: Callable, *args, priority: int = 5, timeout_seconds: Optional[float] = None, **kwargs) -> str:
         task_id = str(uuid.uuid4())[:8]
         with self._lock:
             self._task_history.append({
@@ -275,11 +346,12 @@ class ThreadPool:
                 "priority": priority,
                 "args": [str(arg) for arg in args],
                 "kwargs": {key: str(value) for key, value in kwargs.items()},
+                "timeout_seconds": timeout_seconds,
                 "status": "queued",
                 "submitted_at": round(time.time(), 4),
             })
             self._task_history = self._task_history[-100:]
-        self._task_queue.put((priority, task_id, fn, args, kwargs))
+        self._task_queue.put((priority, task_id, fn, args, kwargs, timeout_seconds))
         self._scale_up_if_needed()
         return task_id
 
@@ -302,6 +374,24 @@ class ThreadPool:
             for w in self._workers:
                 w.join(timeout=2)
 
+    def resize(self, min_workers: Optional[int] = None, max_workers: Optional[int] = None) -> Dict[str, int]:
+        with self._lock:
+            next_min = self.min_workers if min_workers is None else min_workers
+            next_max = self.max_workers if max_workers is None else max_workers
+            if next_min < 1:
+                raise ValueError("min_workers must be at least 1.")
+            if next_max < next_min:
+                raise ValueError("max_workers must be greater than or equal to min_workers.")
+            self.min_workers = next_min
+            self.max_workers = next_max
+            self._refresh_desired_workers_locked()
+            self._desired_workers = max(self.min_workers, min(self._desired_workers, self.max_workers))
+            current_workers = len(self._workers)
+
+        if current_workers < self.min_workers:
+            self._start_workers(self.min_workers - current_workers)
+        return self.get_stats()
+
     def get_stats(self) -> Dict:
         with self._lock:
             self._prune_dead_workers_locked()
@@ -314,6 +404,7 @@ class ThreadPool:
                 "queued_tasks": self._task_queue.qsize(),
                 "completed": self._tasks_completed,
                 "failed": self._tasks_failed,
+                "timed_out": self._tasks_timed_out,
             }
 
     def get_task_history(self) -> List[Dict[str, Any]]:
@@ -466,10 +557,20 @@ class ThreadManager:
         self._pool = ThreadPool(min_workers, max_workers)
         self._log(f"Thread pool enabled ({min_workers}-{max_workers} workers)")
 
-    def submit_to_pool(self, fn: Callable, *args, priority=5, **kwargs) -> str:
+    def resize_pool(self, min_workers: Optional[int] = None, max_workers: Optional[int] = None) -> Dict[str, Any]:
         if not self._pool:
             raise RuntimeError("Thread pool not enabled.")
-        return self._pool.submit(fn, *args, priority=priority, **kwargs)
+        stats = self._pool.resize(min_workers=min_workers, max_workers=max_workers)
+        self._log(
+            f"Thread pool resized to min={stats['min_workers']} max={stats['max_workers']} "
+            f"with {stats['workers']} active workers"
+        )
+        return stats
+
+    def submit_to_pool(self, fn: Callable, *args, priority=5, timeout_seconds: Optional[float] = None, **kwargs) -> str:
+        if not self._pool:
+            raise RuntimeError("Thread pool not enabled.")
+        return self._pool.submit(fn, *args, priority=priority, timeout_seconds=timeout_seconds, **kwargs)
 
     def get_pool_tasks(self) -> List[Dict[str, Any]]:
         if not self._pool:

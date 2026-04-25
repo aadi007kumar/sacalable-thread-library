@@ -111,6 +111,16 @@ def pool_worker(n: int = 100, **_):
     return sum(i ** 2 for i in range(n))
 
 
+def timed_pool_worker(delay: float = 1.0, step: float = 0.05, stop_event=None, **_):
+    """Pool worker that supports cooperative timeout cancellation."""
+    end = time.time() + delay
+    while time.time() < end:
+        if stop_event and stop_event.is_set():
+            return f"STOPPED after timeout at {round(delay, 2)}s target"
+        time.sleep(step)
+    return f"Slept for {round(delay, 2)}s"
+
+
 # ─── Thread Endpoints ─────────────────────────────────────────────────────────
 
 @app.route("/api/threads", methods=["GET"])
@@ -236,8 +246,57 @@ def pool_submit():
     data = request.json or {}
     n = int(data.get("n", 100))
     count = int(data.get("count", 5))
-    ids = [manager.submit_to_pool(pool_worker, n=n) for _ in range(count)]
-    return jsonify({"task_ids": ids, "message": f"Submitted {count} tasks to pool."})
+    priority = int(data.get("priority", 5))
+    timeout_seconds = data.get("timeout_seconds")
+    timeout_seconds = None if timeout_seconds in (None, "") else float(timeout_seconds)
+    delay = float(data.get("delay", 0))
+    worker = timed_pool_worker if delay > 0 else pool_worker
+    worker_kwargs = {"delay": delay} if delay > 0 else {"n": n}
+    ids = [
+        manager.submit_to_pool(
+            worker,
+            priority=priority,
+            timeout_seconds=timeout_seconds,
+            **worker_kwargs,
+        )
+        for _ in range(count)
+    ]
+    timeout_label = f" with timeout {timeout_seconds}s" if timeout_seconds else ""
+    return jsonify({
+        "task_ids": ids,
+        "message": f"Submitted {count} tasks to pool{timeout_label}.",
+    })
+
+
+@app.route("/api/pool/config", methods=["GET"])
+def pool_config():
+    stats = manager._pool.get_stats() if manager._pool else {}
+    return jsonify(stats)
+
+
+@app.route("/api/pool/config", methods=["POST"])
+def resize_pool():
+    if not manager._pool:
+        return error_response("Thread pool not enabled.", 400)
+
+    data = request.json or {}
+    min_workers = data.get("min_workers")
+    max_workers = data.get("max_workers")
+
+    try:
+        stats = manager.resize_pool(
+            min_workers=None if min_workers is None else int(min_workers),
+            max_workers=None if max_workers is None else int(max_workers),
+        )
+    except ValueError as exc:
+        return error_response(str(exc), 400)
+    except RuntimeError as exc:
+        return error_response(str(exc), 400)
+
+    return jsonify({
+        "message": "Thread pool resized.",
+        "pool": stats,
+    })
 
 
 @app.route("/api/pool/stats", methods=["GET"])
@@ -266,7 +325,15 @@ def pool_task_details(task_id):
 @app.route("/api/stress", methods=["POST"])
 def stress_test():
     data = request.json or {}
-    count = min(int(data.get("count", 20)), 200)
+    profile = str(data.get("profile", "")).strip().lower()
+    if profile == "medium":
+        requested_count = 20
+    elif profile == "high":
+        requested_count = 30
+    else:
+        requested_count = int(data.get("count", 20))
+
+    count = min(requested_count, 200)
     ids = []
     for i in range(count):
         kind = "cpu" if i % 2 == 0 else "io"
@@ -277,7 +344,11 @@ def stress_test():
         tid = manager.create_thread(name, target, kwargs=kwargs, priority=priority)
         manager.start_thread(tid)
         ids.append(tid)
-    return jsonify({"message": f"Launched {count} stress threads.", "thread_ids": ids})
+    return jsonify({
+        "message": f"Launched {count} stress threads.",
+        "thread_ids": ids,
+        "profile": profile or "custom",
+    })
 
 
 if __name__ == "__main__":

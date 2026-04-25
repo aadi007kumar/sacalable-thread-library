@@ -319,6 +319,18 @@
     grid-template-columns: 1fr 1fr;
     gap: .7rem;
   }
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .7rem;
+    margin-top: .9rem;
+  }
+  .form-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: .7rem;
+    margin-top: .9rem;
+  }
   .history-item, .task-row {
     background: var(--surface2);
     border: 1px solid var(--border);
@@ -515,8 +527,40 @@
             </div>
           </div>
           <button class="btn btn-primary" onclick="createThread()">Launch Thread</button>
-          <button class="btn btn-warn" onclick="stressTest()">Stress Test (20 Threads)</button>
-          <button class="btn btn-pool" onclick="submitPool()">Submit To Pool (5 Tasks)</button>
+          <div class="form-grid">
+            <div>
+              <label>Stress Profile</label>
+              <select id="stress-profile">
+                <option value="medium">20 Threads</option>
+                <option value="high">30 Threads</option>
+                <option value="custom">Custom Count</option>
+              </select>
+            </div>
+            <div>
+              <label>Custom Stress Count</label>
+              <input id="stress-count" type="number" min="1" max="200" value="20" />
+            </div>
+          </div>
+          <button class="btn btn-warn" onclick="stressTest()">Launch Stress Test</button>
+          <div class="form-grid-3">
+            <div>
+              <label>Pool Tasks</label>
+              <input id="pool-count" type="number" min="1" max="50" value="5" />
+            </div>
+            <div>
+              <label>Work Size</label>
+              <input id="pool-n" type="number" min="10" max="5000" value="200" />
+            </div>
+            <div>
+              <label>Delay (sec)</label>
+              <input id="pool-delay" type="number" min="0" max="30" step="0.1" value="0" />
+            </div>
+          </div>
+          <div style="margin-top:.8rem;">
+            <label>Task Timeout (sec)</label>
+            <input id="pool-timeout" type="number" min="0" max="30" step="0.1" value="0" />
+          </div>
+          <button class="btn btn-pool" onclick="submitPool()">Submit To Pool</button>
         </div>
       </div>
 
@@ -534,10 +578,23 @@
         <div class="panel-body">
           <div class="mini-grid">
             <div class="mini-card"><div class="mini-label">Workers</div><div class="mini-value" id="pool-workers">-</div></div>
+            <div class="mini-card"><div class="mini-label">Range</div><div class="mini-value" id="pool-range">-</div></div>
             <div class="mini-card"><div class="mini-label">Queued</div><div class="mini-value" id="pool-queued">-</div></div>
             <div class="mini-card" style="--accent-color: var(--success)"><div class="mini-label">Done</div><div class="mini-value" id="pool-done">-</div></div>
             <div class="mini-card" style="--accent-color: var(--accent3)"><div class="mini-label">Failed</div><div class="mini-value" id="pool-fail">-</div></div>
+            <div class="mini-card" style="--accent-color: var(--warn)"><div class="mini-label">Timed Out</div><div class="mini-value" id="pool-timeouts">-</div></div>
           </div>
+          <div class="form-grid">
+            <div>
+              <label>Min Workers</label>
+              <input id="pool-min-workers" type="number" min="1" max="100" value="4" />
+            </div>
+            <div>
+              <label>Max Workers</label>
+              <input id="pool-max-workers" type="number" min="1" max="100" value="50" />
+            </div>
+          </div>
+          <button class="btn btn-pool" onclick="resizePool()">Resize Pool</button>
           <div class="thread-section-title">Recent Pool Tasks</div>
           <div id="pool-task-list" class="task-list">
             <div class="empty-state">No pool tasks submitted yet.</div>
@@ -722,7 +779,7 @@ function renderPoolTasks(tasks) {
         <span>${escapeHtml(task.fn)} #${task.task_id}</span>
         <span class="status-${task.status}">${task.status.toUpperCase()}</span>
       </div>
-      <div style="margin-top:.35rem;">Priority ${task.priority} · Submitted ${formatTime(task.submitted_at)}</div>
+      <div style="margin-top:.35rem;">Priority ${task.priority} · Timeout ${task.timeout_seconds ?? '-'} · Submitted ${formatTime(task.submitted_at)}</div>
       <div style="margin-top:.35rem;">${task.result ? `Result: ${escapeHtml(task.result)}` : task.error ? `Error: ${escapeHtml(task.error)}` : 'Waiting for completion'}</div>
     </div>
   `).join('');
@@ -739,9 +796,13 @@ function updateStats(summary, threads) {
   const pool = summary.pool || {};
   document.getElementById('stat-pool').textContent = (pool.queued_tasks || 0) + (pool.active_tasks || 0);
   document.getElementById('pool-workers').textContent = pool.workers ?? '-';
+  document.getElementById('pool-range').textContent = `${pool.min_workers ?? '-'}-${pool.max_workers ?? '-'}`;
   document.getElementById('pool-queued').textContent = pool.queued_tasks ?? '-';
   document.getElementById('pool-done').textContent = pool.completed ?? '-';
   document.getElementById('pool-fail').textContent = pool.failed ?? '-';
+  document.getElementById('pool-timeouts').textContent = pool.timed_out ?? '-';
+  if (pool.min_workers != null) document.getElementById('pool-min-workers').value = pool.min_workers;
+  if (pool.max_workers != null) document.getElementById('pool-max-workers').value = pool.max_workers;
 
   stateChart.data.datasets[0].data = [
     states.RUNNING || 0,
@@ -870,10 +931,12 @@ async function bulkAction(action) {
 
 async function stressTest() {
   try {
+    const profile = document.getElementById('stress-profile').value;
+    const count = parseInt(document.getElementById('stress-count').value, 10) || 20;
     const data = await apiCall('/stress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 20 }),
+      body: JSON.stringify(profile === 'custom' ? { count } : { profile }),
     });
     toast(data.message);
     poll();
@@ -884,10 +947,35 @@ async function stressTest() {
 
 async function submitPool() {
   try {
+    const count = parseInt(document.getElementById('pool-count').value, 10) || 5;
+    const n = parseInt(document.getElementById('pool-n').value, 10) || 200;
+    const delay = parseFloat(document.getElementById('pool-delay').value) || 0;
+    const timeout = parseFloat(document.getElementById('pool-timeout').value) || 0;
     const data = await apiCall('/pool/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 5, n: 200 }),
+      body: JSON.stringify({
+        count,
+        n,
+        delay,
+        timeout_seconds: timeout > 0 ? timeout : null,
+      }),
+    });
+    toast(data.message);
+    poll();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+async function resizePool() {
+  try {
+    const min_workers = parseInt(document.getElementById('pool-min-workers').value, 10);
+    const max_workers = parseInt(document.getElementById('pool-max-workers').value, 10);
+    const data = await apiCall('/pool/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ min_workers, max_workers }),
     });
     toast(data.message);
     poll();
