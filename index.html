@@ -3,968 +3,1131 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ThreadCore - Scalable Thread Management</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<title>Scalable Thread Library Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg: #080c14;
-    --surface: #0d1424;
-    --surface2: #111c30;
-    --border: #1e3050;
-    --accent: #00e5ff;
-    --accent2: #7b61ff;
-    --accent3: #ff4d6d;
-    --warn: #ffb300;
-    --success: #00e676;
-    --text: #cdd9f0;
-    --text-dim: #5a7399;
-    --mono: 'Space Mono', monospace;
-    --sans: 'Syne', sans-serif;
+    --bg: #06101f;
+    --panel: rgba(9, 23, 42, 0.88);
+    --panel-strong: rgba(12, 31, 56, 0.98);
+    --border: rgba(137, 194, 255, 0.12);
+    --text: #e7f0fb;
+    --muted: #93a8c7;
+    --cyan: #79e6ff;
+    --lime: #d0ff72;
+    --amber: #ffcc70;
+    --rose: #ff7d95;
+    --violet: #9f8cff;
+    --shadow: 0 22px 50px rgba(0, 0, 0, 0.28);
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
+    margin: 0;
     min-height: 100vh;
-    overflow-x: hidden;
+    font-family: 'Space Grotesk', sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(circle at top left, rgba(121, 230, 255, 0.16), transparent 28%),
+      radial-gradient(circle at top right, rgba(159, 140, 255, 0.14), transparent 32%),
+      linear-gradient(160deg, #06101f 0%, #0b1930 52%, #102748 100%);
   }
   body::before {
     content: '';
     position: fixed;
     inset: 0;
-    background-image:
-      linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
-    background-size: 40px 40px;
     pointer-events: none;
-    z-index: 0;
+    background-image:
+      linear-gradient(rgba(121, 230, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(121, 230, 255, 0.045) 1px, transparent 1px);
+    background-size: 34px 34px;
+    opacity: .32;
   }
-  header {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    height: 64px;
-    padding: 0 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(8,12,20,.9);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-  }
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 1.3rem;
-    font-weight: 800;
-  }
-  .logo-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-  }
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 8px var(--success);
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse {
-    0%,100% { opacity: 1; }
-    50% { opacity: .3; }
-  }
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: .75rem;
-  }
-  main {
+  .shell {
     position: relative;
     z-index: 1;
     max-width: 1440px;
     margin: 0 auto;
-    padding: 2rem;
+    padding: 24px;
   }
-  .stat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  .stat-card, .mini-card, .detail-card {
-    background: var(--surface);
+  .hero {
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1rem 1.2rem;
-    position: relative;
-    overflow: hidden;
+    background: linear-gradient(135deg, rgba(12, 31, 56, 0.92), rgba(8, 20, 38, 0.92));
+    border-radius: 30px;
+    padding: 28px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(16px);
   }
-  .stat-card::after, .mini-card::after, .detail-card::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent-color, var(--accent));
-  }
-  .stat-label, .mini-label, .detail-label {
-    color: var(--text-dim);
-    font-size: .72rem;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    margin-bottom: .45rem;
-  }
-  .stat-value, .mini-value, .detail-value {
-    font-family: var(--mono);
-    font-weight: 700;
-  }
-  .stat-value { font-size: 2rem; }
-  .mini-value { font-size: 1.15rem; }
-  .detail-value {
-    font-size: .84rem;
-    word-break: break-word;
-  }
-  .charts-row, .main-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-  .main-grid {
-    grid-template-columns: minmax(0, 1.5fr) 390px;
-    align-items: start;
-  }
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    overflow: hidden;
-  }
-  .panel-header {
+  .hero-top {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: .8rem;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-    padding: 1rem 1.3rem;
-  }
-  .panel-title {
-    color: var(--accent);
-    font-size: .8rem;
-    font-weight: 700;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-  }
-  .panel-body {
-    padding: 1rem 1.3rem 1.2rem;
-  }
-  .right-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .controls-grid {
-    display: grid;
-    grid-template-columns: 1.2fr .8fr .8fr;
-    gap: .7rem;
-    margin-bottom: 1rem;
-  }
-  label {
-    display: block;
-    margin-bottom: .4rem;
-    color: var(--text-dim);
-    font-size: .72rem;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-  }
-  input, select {
-    width: 100%;
-    padding: .62rem .8rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-family: var(--mono);
-  }
-  .thread-section-title {
-    margin: .85rem 0 .5rem;
-    color: var(--text-dim);
-    font-size: .72rem;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    font-family: var(--mono);
-  }
-  .thread-list, .history-list, .task-list, #event-log {
-    display: flex;
-    flex-direction: column;
-    gap: .6rem;
-    max-height: 260px;
-    overflow-y: auto;
-  }
-  .thread-row {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: .8rem 1rem;
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    gap: .7rem;
-    align-items: center;
-    cursor: pointer;
-  }
-  .thread-row.active {
-    border-color: var(--accent2);
-    box-shadow: 0 0 0 1px rgba(123,97,255,.25) inset;
-  }
-  .thread-name {
-    font-weight: 700;
-    font-size: .88rem;
-  }
-  .thread-id, .thread-meta-stack, .log-entry, .history-item, .task-row {
-    font-family: var(--mono);
-    font-size: .72rem;
-  }
-  .thread-id, .thread-meta-stack {
-    color: var(--text-dim);
-  }
-  .thread-meta-stack {
-    display: flex;
-    flex-direction: column;
-    gap: .2rem;
-    align-items: flex-end;
-  }
-  .thread-actions, .bulk-actions {
-    display: flex;
-    gap: .4rem;
+    gap: 18px;
+    align-items: flex-start;
     flex-wrap: wrap;
   }
-  .state-badge {
-    padding: .25rem .6rem;
-    border-radius: 6px;
-    font-size: .68rem;
-    font-weight: 700;
-    font-family: var(--mono);
-    letter-spacing: .05em;
+  .eyebrow {
+    margin: 0 0 10px;
+    text-transform: uppercase;
+    letter-spacing: .28em;
+    font-size: .72rem;
+    color: var(--cyan);
+    font-family: 'Chakra Petch', sans-serif;
   }
-  .state-RUNNING { background: rgba(0,230,118,.15); color: var(--success); border: 1px solid rgba(0,230,118,.3); }
-  .state-PAUSED { background: rgba(123,97,255,.15); color: var(--accent2); border: 1px solid rgba(123,97,255,.3); }
-  .state-COMPLETED { background: rgba(0,229,255,.1); color: var(--accent); border: 1px solid rgba(0,229,255,.2); }
-  .state-FAILED { background: rgba(255,77,109,.15); color: var(--accent3); border: 1px solid rgba(255,77,109,.3); }
-  .state-TERMINATED { background: rgba(90,115,153,.15); color: var(--text-dim); border: 1px solid var(--border); }
-  .state-PENDING { background: rgba(255,179,0,.12); color: var(--warn); border: 1px solid rgba(255,179,0,.3); }
-  .action-btn, .mini-btn, .btn {
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 700;
+  .hero h1 {
+    margin: 0;
+    font-size: clamp(2.1rem, 4vw, 4.2rem);
+    line-height: .95;
+    max-width: 720px;
   }
-  .action-btn, .mini-btn {
-    padding: .34rem .58rem;
-    font-size: .7rem;
-    font-family: var(--mono);
+  .hero p {
+    margin: 14px 0 0;
+    max-width: 760px;
+    color: var(--muted);
+    font-size: 1rem;
   }
-  .btn {
-    width: 100%;
-    padding: .75rem;
-    margin-top: .7rem;
-    font-size: .88rem;
-    font-family: var(--sans);
-  }
-  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #000; }
-  .btn-warn { background: linear-gradient(135deg, var(--warn), #ff6d00); color: #000; }
-  .btn-pool { background: linear-gradient(135deg, var(--accent2), #4a148c); color: #fff; }
-  .btn-pause { background: rgba(255,179,0,.16); color: var(--warn); }
-  .btn-resume { background: rgba(0,230,118,.16); color: var(--success); }
-  .btn-terminate { background: rgba(255,77,109,.16); color: var(--accent3); }
-  .mini-btn { background: rgba(255,255,255,.06); color: var(--text); }
-  .priority-row {
-    display: flex;
-    align-items: center;
-    gap: .8rem;
-  }
-  input[type=range] {
-    -webkit-appearance: none;
-    height: 4px;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    border: none;
-    border-radius: 2px;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--text);
-  }
-  .detail-grid {
+  .hero-metrics {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: .7rem;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    min-width: min(100%, 390px);
   }
-  .mini-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: .7rem;
-  }
-  .history-item, .task-row {
-    background: var(--surface2);
+  .metric-chip {
+    padding: 14px 16px;
+    border-radius: 18px;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: .65rem .75rem;
+    background: rgba(255, 255, 255, 0.04);
   }
-  .task-row {
+  .metric-chip span {
+    display: block;
+    font-size: .72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-family: 'Chakra Petch', sans-serif;
+  }
+  .metric-chip strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 1.45rem;
+  }
+  .nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .nav button {
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+    padding: 12px 16px;
+    border-radius: 999px;
     cursor: pointer;
+    font: 600 .92rem 'Chakra Petch', sans-serif;
+    letter-spacing: .04em;
+    transition: .2s ease;
   }
-  .task-row.active {
-    border-color: var(--accent2);
-    box-shadow: 0 0 0 1px rgba(123,97,255,.25) inset;
+  .nav button.active {
+    background: var(--lime);
+    color: #08111f;
   }
-  .history-item, .task-head, .log-entry {
+  .nav button:hover { border-color: rgba(208, 255, 114, 0.32); }
+  .page {
+    display: none;
+    margin-top: 22px;
+    animation: rise .35s ease;
+  }
+  .page.active { display: block; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .section-title {
     display: flex;
     justify-content: space-between;
-    gap: .8rem;
+    gap: 12px;
+    align-items: end;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
   }
-  .log-time { color: var(--text-dim); flex-shrink: 0; }
-  .log-WARNING { color: var(--warn); }
-  .log-ERROR { color: var(--accent3); }
-  .empty-state {
-    border: 1px dashed var(--border);
+  .section-title h2 {
+    margin: 0;
+    font-size: 2rem;
+  }
+  .section-title p {
+    margin: 8px 0 0;
+    color: var(--muted);
+  }
+  .grid-3, .grid-2, .grid-wide {
+    display: grid;
+    gap: 18px;
+  }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-wide { grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); }
+  .card {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 26px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+  }
+  .stat-card strong {
+    display: block;
+    font-size: 3rem;
+    margin-top: 12px;
+    font-family: 'Chakra Petch', sans-serif;
+  }
+  .label {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-size: .74rem;
+    color: var(--muted);
+    font-family: 'Chakra Petch', sans-serif;
+  }
+  .helper {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: .93rem;
+  }
+  .progress-block { margin-top: 18px; }
+  .progress-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .progress {
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .progress > div {
+    height: 100%;
+    border-radius: inherit;
+    transition: width .35s ease;
+  }
+  .timeline-list, .activity-list, .queue-list, .suggestions-list, .settings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .activity-item, .queue-item, .suggestion-item, .thread-row, .quick-item {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 18px;
+    padding: 16px;
+  }
+  .activity-item small, .queue-item small, .thread-row small, .quick-item small {
+    color: var(--muted);
+  }
+  .thread-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+  }
+  .thread-row.running {
+    border-color: rgba(208, 255, 114, 0.38);
+    box-shadow: 0 0 0 1px rgba(208, 255, 114, 0.18) inset;
+  }
+  .thread-core h3, .queue-item h3, .suggestion-item h3 {
+    margin: 0;
+    font-size: 1.02rem;
+  }
+  .thread-meta, .queue-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: .88rem;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-family: 'Chakra Petch', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .badge.RUNNING, .tone-running { background: rgba(208, 255, 114, 0.14); color: var(--lime); }
+  .badge.PAUSED, .tone-paused { background: rgba(159, 140, 255, 0.16); color: var(--violet); }
+  .badge.PENDING, .tone-pending { background: rgba(121, 230, 255, 0.14); color: var(--cyan); }
+  .badge.COMPLETED, .tone-completed { background: rgba(255, 204, 112, 0.16); color: var(--amber); }
+  .badge.FAILED, .tone-failed, .badge.TERMINATED { background: rgba(255, 125, 149, 0.16); color: var(--rose); }
+  .btn-row, .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  button, select, input {
+    font: inherit;
+  }
+  button.action, .pill-action {
+    border: 1px solid transparent;
+    border-radius: 16px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: .2s ease;
+    font-weight: 700;
+  }
+  button.action.primary { background: var(--lime); color: #09101b; }
+  button.action.secondary { background: rgba(255,255,255,.08); color: var(--text); }
+  button.action.warn { background: rgba(255, 125, 149, 0.14); color: var(--rose); }
+  button.action.cyan { background: rgba(121, 230, 255, 0.14); color: var(--cyan); }
+  button.action:hover { transform: translateY(-1px); }
+  form.grid-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .field.span-2 { grid-column: span 2; }
+  input, select {
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 16px;
+    color: var(--text);
+    padding: 14px 15px;
+  }
+  .scheduler-hero {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: 1.1fr .9fr;
+  }
+  .scheduler-stage {
+    position: relative;
+    min-height: 260px;
+    border-radius: 26px;
+    background:
+      linear-gradient(135deg, rgba(121,230,255,.08), rgba(159,140,255,.12)),
+      rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    padding: 22px;
+    overflow: hidden;
+  }
+  .scheduler-stage::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 90px;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,.18));
+  }
+  .runner-glow {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(208,255,114,.22), transparent 70%);
+    filter: blur(8px);
+  }
+  .stage-label {
+    position: relative;
+    z-index: 1;
+  }
+  .stage-label h3 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+  .stage-label p {
+    margin: 10px 0 0;
+    color: var(--muted);
+    max-width: 520px;
+  }
+  .schedule-track {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .schedule-pill {
+    min-width: 180px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.05);
+  }
+  .schedule-pill.active {
+    background: rgba(208,255,114,.12);
+    border-color: rgba(208,255,114,.35);
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.02); opacity: .92; }
+  }
+  .chart-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .chart-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 50px;
+    gap: 12px;
+    align-items: center;
+  }
+  .bar-shell {
+    height: 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    overflow: hidden;
+  }
+  .bar-shell span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+  }
+  .insight-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: 1.15fr .85fr;
+  }
+  .switcher {
+    display: inline-flex;
+    gap: 8px;
+    padding: 8px;
+    background: rgba(255,255,255,.05);
+    border-radius: 18px;
+    border: 1px solid var(--border);
+  }
+  .switcher button {
+    border: none;
     border-radius: 12px;
-    padding: 1.2rem;
-    text-align: center;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: .8rem;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-weight: 700;
   }
-  .status-success { color: var(--success); }
-  .status-failed { color: var(--accent3); }
-  .status-running { color: var(--warn); }
-  .status-queued { color: var(--text-dim); }
+  .switcher button.active {
+    background: var(--lime);
+    color: #09111d;
+  }
   #toast {
     position: fixed;
-    right: 2rem;
-    bottom: 2rem;
-    z-index: 999;
-    background: var(--surface2);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    padding: .8rem 1.1rem;
-    border-radius: 10px;
-    font-family: var(--mono);
-    transform: translateY(100px);
+    right: 24px;
+    bottom: 24px;
+    background: var(--panel-strong);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 16px;
+    min-width: 220px;
+    box-shadow: var(--shadow);
+    transform: translateY(110px);
     opacity: 0;
-    transition: transform .25s, opacity .25s;
+    transition: .25s ease;
+    z-index: 999;
   }
   #toast.show {
     transform: translateY(0);
     opacity: 1;
   }
-  canvas { width: 100% !important; }
+  .empty {
+    border: 1px dashed var(--border);
+    border-radius: 18px;
+    padding: 20px;
+    color: var(--muted);
+    text-align: center;
+  }
   @media (max-width: 1100px) {
-    .charts-row, .main-grid, .controls-grid, .detail-grid { grid-template-columns: 1fr; }
+    .grid-3, .grid-2, .grid-wide, .scheduler-hero, .insight-grid, form.grid-form { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .shell { padding: 16px; }
+    .hero { padding: 20px; }
+    .hero-metrics { grid-template-columns: 1fr; }
+    .thread-row { grid-template-columns: 1fr; }
+    .chart-row { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">
-    <div class="logo-icon">T</div>
-    ThreadCore
-    <div class="status-dot"></div>
-  </div>
-  <div class="header-right">
-    <span id="clock">--:--:--</span>
-    <span>API: localhost:5000</span>
-  </div>
-</header>
-
-<main>
-  <div class="stat-grid">
-    <div class="stat-card" style="--accent-color: var(--success)">
-      <div class="stat-label">Total Threads</div>
-      <div class="stat-value" id="stat-total">0</div>
-    </div>
-    <div class="stat-card" style="--accent-color: var(--accent)">
-      <div class="stat-label">Live Threads</div>
-      <div class="stat-value" id="stat-live">0</div>
-    </div>
-    <div class="stat-card" style="--accent-color: var(--accent2)">
-      <div class="stat-label">Paused</div>
-      <div class="stat-value" id="stat-paused">0</div>
-    </div>
-    <div class="stat-card" style="--accent-color: var(--warn)">
-      <div class="stat-label">Pool Load</div>
-      <div class="stat-value" id="stat-pool">0</div>
-    </div>
-    <div class="stat-card" style="--accent-color: var(--accent)">
-      <div class="stat-label">Finished</div>
-      <div class="stat-value" id="stat-finished">0</div>
-    </div>
-    <div class="stat-card" style="--accent-color: var(--accent3)">
-      <div class="stat-label">Failed</div>
-      <div class="stat-value" id="stat-failed">0</div>
-    </div>
-  </div>
-
-  <div class="charts-row">
-    <div class="panel">
-      <div class="panel-header"><span class="panel-title">Thread State Distribution</span></div>
-      <div class="panel-body"><canvas id="stateChart" height="180"></canvas></div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><span class="panel-title">Running Threads Over Time</span></div>
-      <div class="panel-body"><canvas id="timelineChart" height="180"></canvas></div>
-    </div>
-  </div>
-
-  <div class="main-grid">
-    <div>
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Thread Explorer</span>
-          <div class="bulk-actions">
-            <button class="mini-btn btn-pause" onclick="bulkAction('pause')">Pause Running</button>
-            <button class="mini-btn btn-resume" onclick="bulkAction('resume')">Resume Paused</button>
-            <button class="mini-btn btn-terminate" onclick="bulkAction('terminate')">Terminate Live</button>
-            <button class="mini-btn" onclick="bulkAction('cleanup')">Cleanup Done</button>
-          </div>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="eyebrow">OS Thread Console</p>
+          <h1>Scalable Thread Library Management System</h1>
+          <p>Multi-view management console for live threads, scheduler flow, analytics, AI suggestions, and runtime configuration. This UI now updates directly inside your current project surface.</p>
         </div>
-        <div class="panel-body">
-          <div class="controls-grid">
-            <div>
-              <label>Search</label>
-              <input id="filter-search" type="text" placeholder="Search by name or ID" oninput="renderThreads(appState.threads)" />
-            </div>
-            <div>
-              <label>State Filter</label>
-              <select id="filter-state" onchange="renderThreads(appState.threads)">
-                <option value="ALL">All States</option>
-                <option value="RUNNING">Running</option>
-                <option value="PAUSED">Paused</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="FAILED">Failed</option>
-                <option value="TERMINATED">Terminated</option>
-                <option value="PENDING">Pending</option>
-              </select>
-            </div>
-            <div>
-              <label>Sort</label>
-              <select id="sort-threads" onchange="renderThreads(appState.threads)">
-                <option value="created_desc">Newest First</option>
-                <option value="priority_desc">Highest Priority</option>
-                <option value="duration_desc">Longest Duration</option>
-                <option value="name_asc">Name A-Z</option>
-              </select>
-            </div>
-          </div>
-          <div class="thread-section-title" id="live-thread-caption">Live Threads</div>
-          <div id="thread-list" class="thread-list">
-            <div class="empty-state">No live threads yet.</div>
-          </div>
-          <div class="thread-section-title" id="done-thread-caption">Finished Threads</div>
-          <div id="done-thread-list" class="thread-list">
-            <div class="empty-state">No finished threads yet.</div>
-          </div>
+        <div class="hero-metrics">
+          <div class="metric-chip"><span>Clock</span><strong id="clock">--:--:--</strong></div>
+          <div class="metric-chip"><span>API</span><strong>localhost:5000</strong></div>
+          <div class="metric-chip"><span>Mode</span><strong id="hero-mode">FIFO</strong></div>
         </div>
       </div>
+      <div class="nav" id="nav"></div>
+    </section>
 
-      <div class="panel" style="margin-top:1.5rem;">
-        <div class="panel-header"><span class="panel-title">Event Log</span></div>
-        <div class="panel-body">
-          <div id="event-log">
-            <div class="empty-state">Waiting for backend events</div>
-          </div>
+    <section id="page-dashboard" class="page"></section>
+    <section id="page-threads" class="page"></section>
+    <section id="page-scheduler" class="page"></section>
+    <section id="page-analytics" class="page"></section>
+    <section id="page-ai" class="page"></section>
+    <section id="page-settings" class="page"></section>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+const API = "http://localhost:5000/api";
+const PAGES = [
+  ["dashboard", "Dashboard"],
+  ["threads", "Thread Management"],
+  ["scheduler", "Scheduler"],
+  ["analytics", "Analytics"],
+  ["ai", "AI Suggestions"],
+  ["settings", "Settings"],
+];
+
+const state = {
+  page: location.hash.replace("#", "") || "dashboard",
+  threads: [],
+  summary: { states: {}, event_log: [], pool: {} },
+  poolTasks: [],
+  config: { scheduling_type: "FIFO", simulation_speed: "Normal" },
+  suggestions: { generated_at: "--:--:--", suggestions: [] },
+};
+
+function toast(message, error = false) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.style.borderColor = error ? "rgba(255, 125, 149, 0.35)" : "rgba(121, 230, 255, 0.25)";
+  el.classList.add("show");
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function apiCall(path, options = {}) {
+  return fetch(`${API}${path}`, options).then(async (response) => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed");
+    return data;
+  });
+}
+
+function getOrderedThreads() {
+  const threads = [...state.threads];
+  if (state.config.scheduling_type === "PRIORITY") {
+    return threads.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (a.created_time || 0) - (b.created_time || 0));
+  }
+  return threads.sort((a, b) => (a.created_time || 0) - (b.created_time || 0));
+}
+
+function getCounts() {
+  const threads = state.threads;
+  const states = state.summary.states || {};
+  const total = threads.length;
+  const active = (states.RUNNING || 0) + (states.PAUSED || 0);
+  const completed = (states.COMPLETED || 0) + (states.TERMINATED || 0);
+  const waiting = states.PENDING || 0;
+  const failed = states.FAILED || 0;
+  return { total, active, completed, waiting, failed };
+}
+
+function averageDuration() {
+  const completed = state.threads.filter((thread) => Number.isFinite(thread.duration));
+  if (!completed.length) return 0;
+  const total = completed.reduce((sum, thread) => sum + thread.duration, 0);
+  return +(total / completed.length).toFixed(2);
+}
+
+function progressPercent(part, total) {
+  if (!total) return 0;
+  return Math.round((part / total) * 100);
+}
+
+function renderNav() {
+  const nav = document.getElementById("nav");
+  nav.innerHTML = PAGES.map(([id, label]) => `
+    <button class="${state.page === id ? "active" : ""}" onclick="navigate('${id}')">${label}</button>
+  `).join("");
+}
+
+function navigate(page) {
+  state.page = page;
+  location.hash = page;
+  render();
+}
+
+function renderDashboard() {
+  const { total, active, completed, waiting, failed } = getCounts();
+  const completion = progressPercent(completed, total);
+  const utilization = progressPercent(active, total);
+  const waitingShare = progressPercent(waiting, total);
+  const runtime = averageDuration();
+  const activity = state.summary.event_log || [];
+
+  document.getElementById("page-dashboard").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>Dashboard</h2>
+        <p>High-level visibility into total workload, live execution, completion, and recent events.</p>
+      </div>
+    </div>
+    <div class="grid-3">
+      <div class="card stat-card"><span class="label">Total Threads</span><strong>${total}</strong><div class="helper">All created workloads.</div></div>
+      <div class="card stat-card"><span class="label">Active Threads</span><strong style="color:var(--lime)">${active}</strong><div class="helper">Running or paused threads.</div></div>
+      <div class="card stat-card"><span class="label">Completed</span><strong style="color:var(--amber)">${completed}</strong><div class="helper">Finished or terminated work.</div></div>
+    </div>
+    <div class="grid-wide" style="margin-top:18px;">
+      <div class="card">
+        <span class="label">Visual Progress</span>
+        <div class="progress-block">
+          <div class="progress-head"><span>Completion Rate</span><span>${completion}%</span></div>
+          <div class="progress"><div style="width:${completion}%;background:linear-gradient(90deg,var(--lime),#91ffbb)"></div></div>
+        </div>
+        <div class="progress-block">
+          <div class="progress-head"><span>Waiting Queue Pressure</span><span>${waitingShare}%</span></div>
+          <div class="progress"><div style="width:${waitingShare}%;background:linear-gradient(90deg,var(--cyan),var(--violet))"></div></div>
+        </div>
+        <div class="progress-block">
+          <div class="progress-head"><span>Runtime Utilization</span><span>${utilization}%</span></div>
+          <div class="progress"><div style="width:${utilization}%;background:linear-gradient(90deg,var(--amber),#ff9a6b)"></div></div>
+        </div>
+        <div class="grid-3" style="margin-top:18px;">
+          <div class="quick-item"><span class="label">Avg Execution</span><strong>${runtime}s</strong></div>
+          <div class="quick-item"><span class="label">Waiting</span><strong>${waiting}</strong></div>
+          <div class="quick-item"><span class="label">Failed</span><strong>${failed}</strong></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="label">Recent Activity</span>
+        <div class="activity-list" style="margin-top:14px;">
+          ${activity.length ? activity.slice().reverse().map((entry) => `
+            <div class="activity-item">
+              <strong>${escapeHtml(entry.message)}</strong>
+              <div class="helper">${entry.level} • ${entry.time}</div>
+            </div>
+          `).join("") : '<div class="empty">No activity from the backend yet.</div>'}
         </div>
       </div>
     </div>
+  `;
+}
 
-    <div class="right-stack">
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Create Thread</span></div>
-        <div class="panel-body">
-          <div>
-            <label>Thread Name</label>
-            <input id="t-name" type="text" value="Worker-001" />
+function renderThreadsPage() {
+  const ordered = getOrderedThreads();
+  const rows = ordered.map((thread, index) => `
+    <div class="thread-row ${thread.state === 'RUNNING' ? 'running' : ''}">
+      <span class="badge ${thread.state}">${thread.state}</span>
+      <div class="thread-core">
+        <h3>${escapeHtml(thread.name)}</h3>
+        <div class="thread-meta">
+          <span>${escapeHtml(thread.thread_id)}</span>
+          <span>Priority ${thread.priority}</span>
+          <span>${state.config.scheduling_type === "FIFO" ? `Queue #${index + 1}` : "Priority ordered"}</span>
+          <span>${thread.duration ? `${thread.duration.toFixed(2)}s` : "In progress"}</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        ${thread.state === "RUNNING" ? `<button class="action secondary" onclick="pauseThread('${thread.thread_id}')">Pause</button>` : ""}
+        ${thread.state === "PAUSED" ? `<button class="action cyan" onclick="resumeThread('${thread.thread_id}')">Resume</button>` : ""}
+        ${["RUNNING", "PAUSED", "PENDING"].includes(thread.state) ? `<button class="action warn" onclick="terminateThread('${thread.thread_id}')">Terminate</button>` : ""}
+      </div>
+    </div>
+  `).join("");
+
+  document.getElementById("page-threads").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>Thread Management</h2>
+        <p>Create new tasks, assign priority, and inspect queue order under ${state.config.scheduling_type} scheduling.</p>
+      </div>
+    </div>
+    <div class="grid-wide">
+      <div class="card">
+        <span class="label">Create New Thread</span>
+        <form class="grid-form" onsubmit="createThread(event)">
+          <div class="field span-2">
+            <label class="label">Thread Name</label>
+            <input id="thread-name" value="Worker-${String(Date.now()).slice(-4)}" />
           </div>
-          <div style="margin-top:1rem;">
-            <label>Type</label>
-            <select id="t-kind" onchange="updateKindUI()">
+          <div class="field">
+            <label class="label">Thread Type</label>
+            <select id="thread-kind">
               <option value="cpu">CPU-Bound</option>
               <option value="io">I/O-Bound</option>
             </select>
           </div>
-          <div id="t-dur-group" style="margin-top:1rem;">
-            <label>Duration (seconds)</label>
-            <input id="t-duration" type="number" min="1" max="30" value="5" />
+          <div class="field">
+            <label class="label">Priority</label>
+            <select id="thread-priority">
+              <option value="3">Low</option>
+              <option value="6" selected>Medium</option>
+              <option value="9">High</option>
+            </select>
           </div>
-          <div id="t-steps-group" style="margin-top:1rem; display:none;">
-            <label>I/O Steps</label>
-            <input id="t-steps" type="number" min="1" max="20" value="5" />
+          <div class="field">
+            <label class="label">Duration / Steps</label>
+            <input id="thread-duration" type="number" min="1" max="20" value="5" />
           </div>
-          <div style="margin-top:1rem;">
-            <label>Priority</label>
-            <div class="priority-row">
-              <input type="range" id="t-priority" min="1" max="10" value="5" oninput="document.getElementById('pval').textContent=this.value" />
-              <span id="pval">5</span>
+          <div class="field">
+            <label class="label">Queue Logic</label>
+            <input value="${state.config.scheduling_type === "FIFO" ? "FIFO queue order" : "Priority with queue tie-break"}" disabled />
+          </div>
+          <div class="field span-2">
+            <button class="action primary" type="submit">Create Thread</button>
+          </div>
+        </form>
+      </div>
+      <div class="card">
+        <span class="label">Queue Order</span>
+        <div class="queue-list" style="margin-top:14px;">
+          ${rows || '<div class="empty">No threads available. Create one to populate the queue.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSchedulerPage() {
+  const ordered = getOrderedThreads();
+  const running = ordered.find((thread) => thread.state === "RUNNING");
+  const waiting = ordered.filter((thread) => thread.state === "PENDING" || thread.state === "PAUSED");
+  const completed = ordered.filter((thread) => ["COMPLETED", "FAILED", "TERMINATED"].includes(thread.state));
+
+  document.getElementById("page-scheduler").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>Scheduler Simulation</h2>
+        <p>Visual execution lane for running, waiting, and completed threads with direct controls.</p>
+      </div>
+      <div class="toolbar">
+        <button class="action primary" onclick="schedulerStart()">Start</button>
+        <button class="action secondary" onclick="schedulerPause()">Pause</button>
+        <button class="action warn" onclick="schedulerReset()">Reset</button>
+      </div>
+    </div>
+    <div class="scheduler-hero">
+      <div class="scheduler-stage">
+        <div class="runner-glow"></div>
+        <div class="stage-label">
+          <span class="label">Currently Running</span>
+          <h3>${running ? escapeHtml(running.name) : "Idle Scheduler"}</h3>
+          <p>${running ? `Thread ${escapeHtml(running.thread_id)} is active with priority ${running.priority}.` : "No thread is currently running. Use Start to resume paused work or create a new thread."}</p>
+        </div>
+        <div class="schedule-track">
+          ${ordered.length ? ordered.map((thread, index) => `
+            <div class="schedule-pill ${running && running.thread_id === thread.thread_id ? "active" : ""}">
+              <small>${state.config.scheduling_type === "FIFO" ? `Slot ${index + 1}` : `P${thread.priority}`}</small>
+              <h4 style="margin:8px 0 0;">${escapeHtml(thread.name)}</h4>
+              <div class="helper">${thread.state}</div>
+            </div>
+          `).join("") : '<div class="empty" style="min-width:240px;">No threads to simulate yet.</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <span class="label">State Summary</span>
+        <div class="queue-list" style="margin-top:14px;">
+          <div class="queue-item"><h3>Running</h3><div class="queue-meta"><span>${running ? 1 : 0}</span><span>Active execution lane</span></div></div>
+          <div class="queue-item"><h3>Waiting</h3><div class="queue-meta"><span>${waiting.length}</span><span>Pending or paused</span></div></div>
+          <div class="queue-item"><h3>Completed</h3><div class="queue-meta"><span>${completed.length}</span><span>Finished, failed, or terminated</span></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top:18px;">
+      <div class="card">
+        <span class="label">Waiting Queue</span>
+        <div class="queue-list" style="margin-top:14px;">
+          ${waiting.length ? waiting.map((thread, index) => `
+            <div class="queue-item">
+              <h3>${escapeHtml(thread.name)}</h3>
+              <div class="queue-meta">
+                <span>${escapeHtml(thread.thread_id)}</span>
+                <span>${state.config.scheduling_type === "FIFO" ? `Queue #${index + 1}` : `Priority ${thread.priority}`}</span>
+                <span>${thread.state}</span>
+              </div>
+            </div>
+          `).join("") : '<div class="empty">No waiting threads.</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <span class="label">Completed Queue</span>
+        <div class="queue-list" style="margin-top:14px;">
+          ${completed.length ? completed.slice(0, 8).map((thread) => `
+            <div class="queue-item">
+              <h3>${escapeHtml(thread.name)}</h3>
+              <div class="queue-meta">
+                <span>${escapeHtml(thread.thread_id)}</span>
+                <span>${thread.state}</span>
+                <span>${thread.duration ? `${thread.duration.toFixed(2)}s` : "No duration"}</span>
+              </div>
+            </div>
+          `).join("") : '<div class="empty">No completed threads yet.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildBars(items, colorMap) {
+  const max = Math.max(...items.map((item) => item.value), 1);
+  return `
+    <div class="chart-bars">
+      ${items.map((item) => `
+        <div class="chart-row">
+          <strong>${item.label}</strong>
+          <div class="bar-shell"><span style="width:${(item.value / max) * 100}%;background:${colorMap[item.label] || "var(--cyan)"}"></span></div>
+          <strong>${item.value}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAnalyticsPage() {
+  const states = state.summary.states || {};
+  const stateItems = [
+    { label: "RUNNING", value: states.RUNNING || 0 },
+    { label: "PAUSED", value: states.PAUSED || 0 },
+    { label: "PENDING", value: states.PENDING || 0 },
+    { label: "COMPLETED", value: states.COMPLETED || 0 },
+    { label: "FAILED", value: states.FAILED || 0 },
+  ];
+  const priorityItems = [
+    { label: "High", value: state.threads.filter((thread) => (thread.priority || 0) >= 8).length },
+    { label: "Medium", value: state.threads.filter((thread) => (thread.priority || 0) >= 4 && (thread.priority || 0) < 8).length },
+    { label: "Low", value: state.threads.filter((thread) => (thread.priority || 0) < 4).length },
+  ];
+  const throughput = getCounts().completed;
+  const avg = averageDuration();
+  const waitPressure = getCounts().waiting;
+
+  document.getElementById("page-analytics").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>Analytics</h2>
+        <p>Execution time, throughput, average duration, and queue pressure visualized from current thread state.</p>
+      </div>
+    </div>
+    <div class="grid-3">
+      <div class="card stat-card"><span class="label">Execution Time</span><strong>${avg}s</strong><div class="helper">Average completed duration.</div></div>
+      <div class="card stat-card"><span class="label">Throughput</span><strong style="color:var(--lime)">${throughput}</strong><div class="helper">Completed workloads.</div></div>
+      <div class="card stat-card"><span class="label">Average Wait Pressure</span><strong style="color:var(--amber)">${waitPressure}</strong><div class="helper">Pending queue depth.</div></div>
+    </div>
+    <div class="grid-2" style="margin-top:18px;">
+      <div class="card">
+        <span class="label">Thread States</span>
+        ${buildBars(stateItems, {
+          RUNNING: "linear-gradient(90deg,var(--lime),#9cff9c)",
+          PAUSED: "linear-gradient(90deg,var(--violet),#c2b5ff)",
+          PENDING: "linear-gradient(90deg,var(--cyan),#79c2ff)",
+          COMPLETED: "linear-gradient(90deg,var(--amber),#ffd99c)",
+          FAILED: "linear-gradient(90deg,var(--rose),#ff9caf)",
+        })}
+      </div>
+      <div class="card">
+        <span class="label">Priority Distribution</span>
+        ${buildBars(priorityItems, {
+          High: "linear-gradient(90deg,var(--rose),#ffa7b7)",
+          Medium: "linear-gradient(90deg,var(--amber),#ffe09c)",
+          Low: "linear-gradient(90deg,var(--cyan),#9fe9ff)",
+        })}
+      </div>
+    </div>
+  `;
+}
+
+function renderAIPage() {
+  const suggestions = state.suggestions.suggestions || [];
+  document.getElementById("page-ai").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>AI Suggestions</h2>
+        <p>Mock assistant recommendations for scheduling mode, bottleneck detection, and queue tuning.</p>
+      </div>
+      <small style="color:var(--muted)">Generated at ${state.suggestions.generated_at || "--:--:--"}</small>
+    </div>
+    <div class="insight-grid">
+      <div class="card">
+        <span class="label">Assistant Output</span>
+        <div class="suggestions-list" style="margin-top:14px;">
+          ${suggestions.length ? suggestions.map((item) => `
+            <div class="suggestion-item">
+              <h3>${escapeHtml(item.title)}</h3>
+              <p class="helper">${escapeHtml(item.insight)}</p>
+              <div class="queue-meta"><span>Recommendation</span><span>${escapeHtml(item.recommendation)}</span></div>
+            </div>
+          `).join("") : '<div class="empty">AI insights are not available yet.</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <span class="label">Quick Actions</span>
+        <div class="settings-list" style="margin-top:14px;">
+          <div class="quick-item"><strong>Current scheduling</strong><div class="helper">${state.config.scheduling_type}</div></div>
+          <button class="action secondary" onclick="setScheduling('FIFO')">Use FIFO</button>
+          <button class="action cyan" onclick="setScheduling('PRIORITY')">Use Priority</button>
+          <button class="action primary" onclick="schedulerStart()">Resume Execution</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSettingsPage() {
+  document.getElementById("page-settings").innerHTML = `
+    <div class="section-title">
+      <div>
+        <h2>Settings</h2>
+        <p>Change scheduling type, adjust simulation speed, and reset the system from the current UI.</p>
+      </div>
+    </div>
+    <div class="grid-wide">
+      <div class="card">
+        <span class="label">Configuration</span>
+        <div style="margin-top:14px;">
+          <div class="field">
+            <label class="label">Scheduling Type</label>
+            <div class="switcher">
+              <button class="${state.config.scheduling_type === "FIFO" ? "active" : ""}" onclick="setScheduling('FIFO')">FIFO</button>
+              <button class="${state.config.scheduling_type === "PRIORITY" ? "active" : ""}" onclick="setScheduling('PRIORITY')">Priority</button>
             </div>
           </div>
-          <button class="btn btn-primary" onclick="createThread()">Launch Thread</button>
-          <button class="btn btn-warn" onclick="stressTest()">Stress Test (20 Threads)</button>
-          <button class="btn btn-pool" onclick="submitPool()">Submit To Pool (5 Tasks)</button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Selected Thread</span></div>
-        <div class="panel-body">
-          <div id="thread-details">
-            <div class="empty-state">Select a thread to inspect details and lifecycle history.</div>
+          <div class="field" style="margin-top:16px;">
+            <label class="label">Simulation Speed</label>
+            <select id="speed-select" onchange="setSimulationSpeed(this.value)">
+              <option value="Slow" ${state.config.simulation_speed === "Slow" ? "selected" : ""}>Slow</option>
+              <option value="Normal" ${state.config.simulation_speed === "Normal" ? "selected" : ""}>Normal</option>
+              <option value="Fast" ${state.config.simulation_speed === "Fast" ? "selected" : ""}>Fast</option>
+            </select>
           </div>
         </div>
       </div>
-
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Thread Pool</span></div>
-        <div class="panel-body">
-          <div class="mini-grid">
-            <div class="mini-card"><div class="mini-label">Workers</div><div class="mini-value" id="pool-workers">-</div></div>
-            <div class="mini-card"><div class="mini-label">Range</div><div class="mini-value" id="pool-range">-</div></div>
-            <div class="mini-card"><div class="mini-label">Peak</div><div class="mini-value" id="pool-peak">-</div></div>
-            <div class="mini-card"><div class="mini-label">Active</div><div class="mini-value" id="pool-active">-</div></div>
-            <div class="mini-card"><div class="mini-label">Queued</div><div class="mini-value" id="pool-queued">-</div></div>
-            <div class="mini-card" style="--accent-color: var(--success)"><div class="mini-label">Done</div><div class="mini-value" id="pool-done">-</div></div>
-            <div class="mini-card" style="--accent-color: var(--accent3)"><div class="mini-label">Failed</div><div class="mini-value" id="pool-fail">-</div></div>
-          </div>
-          <div class="thread-section-title">Scaling Status</div>
-          <div id="pool-scaling-status" class="empty-state">Pool scaling metrics will appear here.</div>
-          <div class="thread-section-title">Recent Pool Tasks</div>
-          <div id="pool-task-list" class="task-list">
-            <div class="empty-state">No pool tasks submitted yet.</div>
-          </div>
-          <div class="thread-section-title">Selected Pool Task</div>
-          <div id="pool-task-details">
-            <div class="empty-state">Select a pool task to inspect its result and lifecycle.</div>
-          </div>
+      <div class="card">
+        <span class="label">System Controls</span>
+        <div class="settings-list" style="margin-top:14px;">
+          <button class="action secondary" onclick="schedulerPause()">Pause Running Threads</button>
+          <button class="action cyan" onclick="cleanupFinished()">Cleanup Finished Threads</button>
+          <button class="action warn" onclick="resetSystem()">Reset System</button>
         </div>
       </div>
     </div>
-  </div>
-</main>
+  `;
+}
 
-<div id="toast"></div>
+function render() {
+  document.getElementById("hero-mode").textContent = state.config.scheduling_type;
+  renderNav();
+  renderDashboard();
+  renderThreadsPage();
+  renderSchedulerPage();
+  renderAnalyticsPage();
+  renderAIPage();
+  renderSettingsPage();
+  document.querySelectorAll(".page").forEach((page) => page.classList.remove("active"));
+  document.getElementById(`page-${state.page}`)?.classList.add("active");
+}
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script>
-const API = 'http://localhost:5000/api';
-const appState = { threads: [], selectedThreadId: null, selectedPoolTaskId: null, poolTasks: [] };
+async function refresh() {
+  try {
+    const [threads, summary, poolTasks, config, suggestions] = await Promise.all([
+      apiCall("/threads"),
+      apiCall("/summary"),
+      apiCall("/pool/tasks"),
+      apiCall("/config").catch(() => state.config),
+      apiCall("/ai/suggestions").catch(() => ({ generated_at: "--:--:--", suggestions: [] })),
+    ]);
+    state.threads = threads;
+    state.summary = summary;
+    state.poolTasks = poolTasks;
+    state.config = config;
+    state.suggestions = suggestions;
+    render();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function createThread(event) {
+  event.preventDefault();
+  const kind = document.getElementById("thread-kind").value;
+  const duration = Number(document.getElementById("thread-duration").value);
+  try {
+    const payload = {
+      name: document.getElementById("thread-name").value || "Worker",
+      kind,
+      priority: Number(document.getElementById("thread-priority").value),
+      duration,
+      steps: duration,
+    };
+    const data = await apiCall("/threads/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function pauseThread(threadId) {
+  try {
+    const data = await apiCall(`/threads/${threadId}/pause`, { method: "POST" });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function resumeThread(threadId) {
+  try {
+    const data = await apiCall(`/threads/${threadId}/resume`, { method: "POST" });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function terminateThread(threadId) {
+  try {
+    const data = await apiCall(`/threads/${threadId}/terminate`, { method: "POST" });
+    toast(data.message);
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function schedulerStart() {
+  try {
+    const data = await apiCall("/threads/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resume" }),
+    });
+    toast(data.message || "Scheduler started.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function schedulerPause() {
+  try {
+    const data = await apiCall("/threads/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pause" }),
+    });
+    toast(data.message || "Scheduler paused.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function schedulerReset() {
+  try {
+    const data = await apiCall("/threads/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cleanup" }),
+    });
+    toast(data.message || "Simulation reset.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function cleanupFinished() {
+  return schedulerReset();
+}
+
+async function setScheduling(mode) {
+  try {
+    const data = await apiCall("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scheduling_type: mode,
+        simulation_speed: state.config.simulation_speed,
+      }),
+    });
+    toast(data.message || "Scheduling updated.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function setSimulationSpeed(speed) {
+  try {
+    const data = await apiCall("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scheduling_type: state.config.scheduling_type,
+        simulation_speed: speed,
+      }),
+    });
+    toast(data.message || "Simulation speed updated.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function resetSystem() {
+  try {
+    const data = await apiCall("/system/reset", { method: "POST" });
+    toast(data.message || "System reset.");
+    refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+window.addEventListener("hashchange", () => {
+  state.page = location.hash.replace("#", "") || "dashboard";
+  render();
+});
 
 setInterval(() => {
-  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString();
 }, 1000);
 
-function toast(msg, isError = false) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.style.borderColor = isError ? 'var(--accent3)' : 'var(--accent)';
-  el.style.color = isError ? 'var(--accent3)' : 'var(--accent)';
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 3000);
-}
-
-function formatDuration(value) {
-  return value != null ? `${Number(value).toFixed(2)}s` : '-';
-}
-
-function formatTime(value) {
-  return value ? new Date(value * 1000).toLocaleTimeString() : '-';
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-async function apiCall(path, options = {}) {
-  const res = await fetch(`${API}${path}`, options);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Request failed');
-  }
-  return data;
-}
-
-const chartDefaults = {
-  plugins: { legend: { labels: { color: '#5a7399', font: { family: 'Space Mono', size: 11 } } } },
-  scales: {
-    x: { ticks: { color: '#5a7399', font: { family: 'Space Mono', size: 10 } }, grid: { color: '#1e3050' } },
-    y: { ticks: { color: '#5a7399', font: { family: 'Space Mono', size: 10 } }, grid: { color: '#1e3050' } }
-  }
-};
-
-const stateChart = new Chart(document.getElementById('stateChart').getContext('2d'), {
-  type: 'doughnut',
-  data: {
-    labels: ['RUNNING', 'PAUSED', 'COMPLETED', 'FAILED', 'TERMINATED', 'PENDING'],
-    datasets: [{
-      data: [0, 0, 0, 0, 0, 0],
-      backgroundColor: ['#00e676', '#7b61ff', '#00e5ff', '#ff4d6d', '#5a7399', '#ffb300'],
-      borderColor: '#0d1424',
-      borderWidth: 3
-    }]
-  },
-  options: {
-    cutout: '65%',
-    responsive: true,
-    plugins: { legend: { position: 'bottom', labels: { color: '#5a7399', font: { family: 'Space Mono', size: 10 } } } }
-  }
-});
-
-const timelineData = {
-  labels: [],
-  datasets: [{
-    label: 'Running',
-    data: [],
-    borderColor: '#00e676',
-    backgroundColor: 'rgba(0,230,118,.1)',
-    fill: true,
-    tension: .35,
-    pointRadius: 2
-  }]
-};
-
-const timelineChart = new Chart(document.getElementById('timelineChart').getContext('2d'), {
-  type: 'line',
-  data: timelineData,
-  options: { responsive: true, animation: { duration: 300 }, ...chartDefaults }
-});
-
-function pushTimeline(value) {
-  const t = new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  timelineData.labels.push(t);
-  timelineData.datasets[0].data.push(value);
-  if (timelineData.labels.length > 30) {
-    timelineData.labels.shift();
-    timelineData.datasets[0].data.shift();
-  }
-  timelineChart.update('none');
-}
-
-function renderThreads(threads) {
-  const search = document.getElementById('filter-search').value.trim().toLowerCase();
-  const state = document.getElementById('filter-state').value;
-  const sortKey = document.getElementById('sort-threads').value;
-  const sorters = {
-    created_desc: (a, b) => (b.created_time || 0) - (a.created_time || 0),
-    priority_desc: (a, b) => (b.priority || 0) - (a.priority || 0),
-    duration_desc: (a, b) => (b.duration || 0) - (a.duration || 0),
-    name_asc: (a, b) => a.name.localeCompare(b.name),
-  };
-  const filtered = [...threads]
-    .filter(t => (!search || t.name.toLowerCase().includes(search) || t.thread_id.toLowerCase().includes(search)))
-    .filter(t => state === 'ALL' || t.state === state)
-    .sort(sorters[sortKey]);
-
-  const liveStates = ['PENDING', 'RUNNING', 'PAUSED'];
-  const live = filtered.filter(t => liveStates.includes(t.state));
-  const done = filtered.filter(t => !liveStates.includes(t.state));
-
-  const row = t => {
-    const selected = appState.selectedThreadId === t.thread_id ? ' active' : '';
-    const pauseBtn = t.state === 'RUNNING' ? `<button class="action-btn btn-pause" onclick="event.stopPropagation(); pauseThread('${t.thread_id}')">Pause</button>` : '';
-    const resumeBtn = t.state === 'PAUSED' ? `<button class="action-btn btn-resume" onclick="event.stopPropagation(); resumeThread('${t.thread_id}')">Resume</button>` : '';
-    const terminateBtn = ['RUNNING', 'PAUSED', 'PENDING'].includes(t.state) ? `<button class="action-btn btn-terminate" onclick="event.stopPropagation(); terminateThread('${t.thread_id}')">Terminate</button>` : '';
-    return `
-      <div class="thread-row${selected}" onclick="selectThread('${t.thread_id}')">
-        <span class="state-badge state-${t.state}">${t.state}</span>
-        <div>
-          <div class="thread-name">${escapeHtml(t.name)}</div>
-          <div class="thread-id">#${t.thread_id} · P${t.priority}</div>
-        </div>
-        <div class="thread-meta-stack">
-          <span>${formatDuration(t.duration)}</span>
-          <span>${formatTime(t.start_time || t.created_time)}</span>
-        </div>
-        <div class="thread-actions">${pauseBtn}${resumeBtn}${terminateBtn}</div>
-      </div>
-    `;
-  };
-
-  document.getElementById('live-thread-caption').textContent = `Live Threads (${live.length})`;
-  document.getElementById('done-thread-caption').textContent = `Finished Threads (${done.length})`;
-  document.getElementById('thread-list').innerHTML = live.length ? live.map(row).join('') : '<div class="empty-state">No live threads match the current filter.</div>';
-  document.getElementById('done-thread-list').innerHTML = done.length ? done.map(row).join('') : '<div class="empty-state">No finished threads match the current filter.</div>';
-}
-
-function renderLog(entries) {
-  const el = document.getElementById('event-log');
-  if (!entries.length) {
-    el.innerHTML = '<div class="empty-state">Waiting for backend events</div>';
-    return;
-  }
-  el.innerHTML = entries.slice().reverse().map(e => `
-    <div class="log-entry">
-      <span class="log-time">${e.time}</span>
-      <span class="log-${e.level}">${escapeHtml(e.message)}</span>
-    </div>
-  `).join('');
-}
-
-function renderPoolTasks(tasks) {
-  const el = document.getElementById('pool-task-list');
-  if (!tasks.length) {
-    if (appState.selectedPoolTaskId) {
-      appState.selectedPoolTaskId = null;
-      document.getElementById('pool-task-details').innerHTML = '<div class="empty-state">Select a pool task to inspect its result and lifecycle.</div>';
-    }
-    el.innerHTML = '<div class="empty-state">No pool tasks submitted yet.</div>';
-    return;
-  }
-  el.innerHTML = tasks.slice(0, 8).map(task => `
-    <div class="task-row${appState.selectedPoolTaskId === task.task_id ? ' active' : ''}" onclick="selectPoolTask('${task.task_id}')">
-      <div class="task-head">
-        <span>${escapeHtml(task.fn)} #${task.task_id}</span>
-        <span class="status-${task.status}">${task.status.toUpperCase()}</span>
-      </div>
-      <div style="margin-top:.35rem;">Priority ${task.priority} · Submitted ${formatTime(task.submitted_at)}</div>
-      <div style="margin-top:.35rem;">${task.result ? `Result: ${escapeHtml(task.result)}` : task.error ? `Error: ${escapeHtml(task.error)}` : 'Waiting for completion'}</div>
-    </div>
-  `).join('');
-}
-
-async function selectPoolTask(taskId) {
-  appState.selectedPoolTaskId = taskId;
-  renderPoolTasks(appState.poolTasks);
-  const details = await apiCall(`/pool/tasks/${taskId}`);
-  document.getElementById('pool-task-details').innerHTML = `
-    <div class="detail-grid">
-      <div class="detail-card"><div class="detail-label">Task</div><div class="detail-value">#${escapeHtml(details.task_id)}</div></div>
-      <div class="detail-card"><div class="detail-label">Function</div><div class="detail-value">${escapeHtml(details.fn)}</div></div>
-      <div class="detail-card"><div class="detail-label">Status</div><div class="detail-value">${escapeHtml(details.status || '-')}</div></div>
-      <div class="detail-card"><div class="detail-label">Priority</div><div class="detail-value">P${escapeHtml(details.priority)}</div></div>
-      <div class="detail-card"><div class="detail-label">Submitted</div><div class="detail-value">${formatTime(details.submitted_at)}</div></div>
-      <div class="detail-card"><div class="detail-label">Started</div><div class="detail-value">${formatTime(details.started_at)}</div></div>
-      <div class="detail-card"><div class="detail-label">Completed</div><div class="detail-value">${formatTime(details.completed_at)}</div></div>
-      <div class="detail-card"><div class="detail-label">Args</div><div class="detail-value">${escapeHtml((details.args || []).join(', ') || '-')}</div></div>
-      <div class="detail-card"><div class="detail-label">Kwargs</div><div class="detail-value">${escapeHtml(JSON.stringify(details.kwargs || {}))}</div></div>
-      <div class="detail-card"><div class="detail-label">Result</div><div class="detail-value">${escapeHtml(details.result ?? '-')}</div></div>
-      <div class="detail-card"><div class="detail-label">Error</div><div class="detail-value">${escapeHtml(details.error ?? '-')}</div></div>
-    </div>
-  `;
-}
-
-function updateStats(summary, threads) {
-  const states = summary.states || {};
-  document.getElementById('stat-total').textContent = threads.length;
-  document.getElementById('stat-live').textContent = summary.live_threads || 0;
-  document.getElementById('stat-paused').textContent = states.PAUSED || 0;
-  document.getElementById('stat-finished').textContent = summary.finished_threads || 0;
-  document.getElementById('stat-failed').textContent = states.FAILED || 0;
-
-  const pool = summary.pool || {};
-  document.getElementById('stat-pool').textContent = (pool.queued_tasks || 0) + (pool.active_tasks || 0);
-  const workers = pool.workers ?? 0;
-  const minWorkers = pool.min_workers ?? null;
-  const maxWorkers = pool.max_workers ?? null;
-  const peakWorkers = pool.peak_workers ?? null;
-  const activeTasks = pool.active_tasks ?? 0;
-  const queuedTasks = pool.queued_tasks ?? 0;
-  document.getElementById('pool-workers').textContent = maxWorkers != null ? `${workers}/${maxWorkers}` : (pool.workers ?? '-');
-  document.getElementById('pool-range').textContent = minWorkers != null && maxWorkers != null ? `${minWorkers}-${maxWorkers}` : '-';
-  document.getElementById('pool-peak').textContent = peakWorkers ?? '-';
-  document.getElementById('pool-active').textContent = activeTasks;
-  document.getElementById('pool-queued').textContent = pool.queued_tasks ?? '-';
-  document.getElementById('pool-done').textContent = pool.completed ?? '-';
-  document.getElementById('pool-fail').textContent = pool.failed ?? '-';
-
-  const scalingStatus = document.getElementById('pool-scaling-status');
-  if (maxWorkers == null) {
-    scalingStatus.textContent = 'Pool metrics unavailable.';
-  } else if (queuedTasks > 0 && workers < maxWorkers) {
-    scalingStatus.textContent = `Scaling up under load: ${workers} workers active with ${queuedTasks} queued tasks.`;
-  } else if (workers > (minWorkers ?? workers) && activeTasks === 0 && queuedTasks === 0) {
-    scalingStatus.textContent = `Scaling down toward baseline: ${workers} workers active, minimum target is ${minWorkers}.`;
-  } else if (workers === maxWorkers && queuedTasks > 0) {
-    scalingStatus.textContent = `At max capacity: ${workers}/${maxWorkers} workers with ${queuedTasks} queued tasks.`;
-  } else {
-    scalingStatus.textContent = `Stable: ${workers} workers, ${activeTasks} active tasks, ${queuedTasks} queued, peak ${peakWorkers ?? '-'}.`;
-  }
-
-  stateChart.data.datasets[0].data = [
-    states.RUNNING || 0,
-    states.PAUSED || 0,
-    states.COMPLETED || 0,
-    states.FAILED || 0,
-    states.TERMINATED || 0,
-    states.PENDING || 0
-  ];
-  stateChart.update('none');
-  pushTimeline(states.RUNNING || 0);
-}
-
-async function selectThread(tid) {
-  appState.selectedThreadId = tid;
-  renderThreads(appState.threads);
-  const details = await apiCall(`/threads/${tid}`);
-  const history = (details.state_history || []).map(item => `
-    <div class="history-item">
-      <span>${item.state}</span>
-      <span>${formatTime(item.time)}</span>
-    </div>
-  `).join('');
-  document.getElementById('thread-details').innerHTML = `
-    <div class="detail-grid">
-      <div class="detail-card"><div class="detail-label">Thread</div><div class="detail-value">${escapeHtml(details.name)}</div></div>
-      <div class="detail-card"><div class="detail-label">State</div><div class="detail-value">${details.state}</div></div>
-      <div class="detail-card"><div class="detail-label">Target</div><div class="detail-value">${escapeHtml(details.target)}</div></div>
-      <div class="detail-card"><div class="detail-label">Priority</div><div class="detail-value">P${details.priority}</div></div>
-      <div class="detail-card"><div class="detail-label">Duration</div><div class="detail-value">${formatDuration(details.duration)}</div></div>
-      <div class="detail-card"><div class="detail-label">Alive</div><div class="detail-value">${details.is_alive ? 'Yes' : 'No'}</div></div>
-      <div class="detail-card"><div class="detail-label">Result</div><div class="detail-value">${escapeHtml(details.result || '-')}</div></div>
-      <div class="detail-card"><div class="detail-label">Error</div><div class="detail-value">${escapeHtml(details.error || '-')}</div></div>
-    </div>
-    <div class="thread-section-title">Lifecycle History</div>
-    <div class="history-list">${history || '<div class="empty-state">No lifecycle events recorded.</div>'}</div>
-  `;
-}
-
-async function poll() {
-  try {
-    const [threads, summary, poolTasks] = await Promise.all([
-      apiCall('/threads'),
-      apiCall('/summary'),
-      apiCall('/pool/tasks'),
-    ]);
-    appState.threads = threads;
-    appState.poolTasks = poolTasks;
-    renderThreads(threads);
-    renderLog(summary.event_log || []);
-    renderPoolTasks(poolTasks);
-    updateStats(summary, threads);
-    if (appState.selectedPoolTaskId && poolTasks.some(task => task.task_id === appState.selectedPoolTaskId)) {
-      selectPoolTask(appState.selectedPoolTaskId);
-    }
-  } catch (e) {
-    document.getElementById('event-log').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
-  }
-}
-
-function updateKindUI() {
-  const kind = document.getElementById('t-kind').value;
-  document.getElementById('t-dur-group').style.display = kind === 'cpu' ? '' : 'none';
-  document.getElementById('t-steps-group').style.display = kind === 'io' ? '' : 'none';
-}
-
-async function createThread() {
-  try {
-    const data = await apiCall('/threads/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: document.getElementById('t-name').value || 'Worker',
-        kind: document.getElementById('t-kind').value,
-        priority: parseInt(document.getElementById('t-priority').value, 10),
-        duration: parseFloat(document.getElementById('t-duration').value),
-        steps: parseInt(document.getElementById('t-steps').value, 10),
-      })
-    });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function pauseThread(tid) {
-  try {
-    const data = await apiCall(`/threads/${tid}/pause`, { method: 'POST' });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function resumeThread(tid) {
-  try {
-    const data = await apiCall(`/threads/${tid}/resume`, { method: 'POST' });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function terminateThread(tid) {
-  try {
-    const data = await apiCall(`/threads/${tid}/terminate`, { method: 'POST' });
-    toast(data.message, true);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function bulkAction(action) {
-  try {
-    const data = await apiCall('/threads/bulk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
-    });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function stressTest() {
-  try {
-    const data = await apiCall('/stress', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 20 }),
-    });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-async function submitPool() {
-  try {
-    const data = await apiCall('/pool/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 5, n: 200 }),
-    });
-    toast(data.message);
-    poll();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
-
-setInterval(poll, 1500);
-poll();
+document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+renderNav();
+render();
+refresh();
+setInterval(refresh, 1800);
 </script>
 </body>
 </html>

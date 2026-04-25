@@ -14,10 +14,70 @@ CORS(app)
 
 manager = ThreadManager(max_threads=1000)
 manager.enable_pool(min_workers=4, max_workers=50)
+ui_config = {"scheduling_type": "FIFO", "simulation_speed": "Normal"}
 
 
 def error_response(message: str, status: int = 400):
     return jsonify({"error": message}), status
+
+
+def build_ai_suggestions():
+    threads = manager.get_all_metrics()
+    summary = manager.get_summary()
+    states = summary.get("states", {})
+    waiting = states.get("PENDING", 0)
+    running = states.get("RUNNING", 0)
+    paused = states.get("PAUSED", 0)
+    completed = states.get("COMPLETED", 0)
+    avg_duration = 0.0
+    completed_durations = [t.get("duration") for t in threads if t.get("duration")]
+    if completed_durations:
+        avg_duration = round(sum(completed_durations) / len(completed_durations), 2)
+
+    suggestions = [
+        {
+            "title": "Scheduling strategy",
+            "insight": (
+                "Priority scheduling is recommended because urgent work is building up."
+                if waiting >= 4
+                else "FIFO remains stable because backlog is still controlled."
+            ),
+            "recommendation": "Priority" if waiting >= 4 else "FIFO",
+        },
+        {
+            "title": "Bottleneck detection",
+            "insight": (
+                "Too many threads are waiting relative to active execution."
+                if waiting > max(2, running + paused)
+                else "No major bottleneck detected in the live thread set."
+            ),
+            "recommendation": (
+                "Reduce long-running tasks or increase processing capacity."
+                if waiting > max(2, running + paused)
+                else "Current throughput is acceptable."
+            ),
+        },
+        {
+            "title": "Improvement tip",
+            "insight": (
+                f"Average completed runtime is {avg_duration}s."
+                if avg_duration
+                else "Completed thread history is still too small for a strong duration estimate."
+            ),
+            "recommendation": (
+                "Keep active work below 8 concurrent threads for cleaner monitoring."
+                if completed >= 3
+                else "Run a small batch first, then tune scheduling based on observed wait time."
+            ),
+        },
+    ]
+
+    return {
+        "generated_at": time.strftime("%H:%M:%S"),
+        "current_mode": ui_config["scheduling_type"],
+        "simulation_speed": ui_config["simulation_speed"],
+        "suggestions": suggestions,
+    }
 
 
 # ─── Demo Worker Functions ────────────────────────────────────────────────────
@@ -61,6 +121,45 @@ def list_threads():
 @app.route("/api/summary", methods=["GET"])
 def summary():
     return jsonify(manager.get_summary())
+
+
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    return jsonify(ui_config)
+
+
+@app.route("/api/config", methods=["POST"])
+def update_config():
+    data = request.json or {}
+    scheduling_type = str(data.get("scheduling_type", ui_config["scheduling_type"])).upper()
+    simulation_speed = str(data.get("simulation_speed", ui_config["simulation_speed"])).title()
+
+    if scheduling_type not in {"FIFO", "PRIORITY"}:
+        return error_response("Invalid scheduling type.", 400)
+
+    if simulation_speed not in {"Slow", "Normal", "Fast"}:
+        return error_response("Invalid simulation speed.", 400)
+
+    ui_config["scheduling_type"] = scheduling_type
+    ui_config["simulation_speed"] = simulation_speed
+    return jsonify({"message": "Configuration updated.", **ui_config})
+
+
+@app.route("/api/ai/suggestions", methods=["GET"])
+def ai_suggestions():
+    return jsonify(build_ai_suggestions())
+
+
+@app.route("/api/system/reset", methods=["POST"])
+def reset_system():
+    terminated = manager.bulk_action("terminate")
+    time.sleep(0.1)
+    cleaned = manager.cleanup_done()
+    return jsonify({
+        "message": "System reset completed.",
+        "terminated": terminated,
+        "cleaned": cleaned,
+    })
 
 
 @app.route("/api/threads/<tid>", methods=["GET"])
